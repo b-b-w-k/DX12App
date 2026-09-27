@@ -1,0 +1,248 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="着色器">
+      <UniqueIdentifier>{86707859-31f7-4c90-8f5e-b95225eb929e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="应用程序">
+      <UniqueIdentifier>{57f8feeb-521d-4cf9-9493-e276d36bdf74}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="应用程序\基类">
+      <UniqueIdentifier>{bc0be606-bbc1-4010-ab00-e6a138a92930}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="资源导入">
+      <UniqueIdentifier>{173aa114-2a09-4b2f-8f5d-245ec09924da}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="资源导入\模型资源">
+      <UniqueIdentifier>{3b744474-9a12-4316-8a6d-9131876f80e6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="资源导入\纹理资源">
+      <UniqueIdentifier>{ae7ab93a-84a0-4173-86eb-47e69614fa51}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="辅助结构体">
+      <UniqueIdentifier>{5b2fbcfb-908f-48be-baa0-e60f30f3f461}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="渲染数据">
+      <UniqueIdentifier>{ac1028dd-5e30-4f8f-b832-2efefb2ac91e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="辅助渲染器">
+      <UniqueIdentifier>{dde5d96b-5f76-41a2-983c-932b500bc97c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="反射项">
+      <UniqueIdentifier>{a4e9fcbf-6043-4463-a564-72ef1d31ce07}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="射线检测">
+      <UniqueIdentifier>{dcf66b6a-46e6-455b-926d-dc71914d56b3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="场景对象">
+      <UniqueIdentifier>{1938830e-70a4-4e53-a4d7-2978a6976868}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="摄像机">
+      <UniqueIdentifier>{4e371f94-da12-4038-84eb-c07a44d36fad}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="输入控制">
+      <UniqueIdentifier>{673ce378-1570-4fd0-95a3-e861595de88e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="应用程序\计时器">
+      <UniqueIdentifier>{baa99323-b927-4775-85a5-de2c1d45fe81}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="组件">
+      <UniqueIdentifier>{d4fcacce-d5b6-476c-9211-d0575edb3cc4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\shaders\color.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\light.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\standard.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\common.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\skyBox.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\mirror.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\terrain.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+    <Text Include="..\shaders\wave.hlsl">
+      <Filter>着色器</Filter>
+    </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="AppMain.cpp">
+      <Filter>应用程序</Filter>
+    </ClCompile>
+    <ClCompile Include="BoxGameApp.cpp">
+      <Filter>应用程序</Filter>
+    </ClCompile>
+    <ClCompile Include="GameApp.cpp">
+      <Filter>应用程序\基类</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderComponent.cpp">
+      <Filter>组件</Filter>
+    </ClCompile>
+    <ClCompile Include="CollisionComponent.cpp">
+      <Filter>组件</Filter>
+    </ClCompile>
+    <ClCompile Include="GeoGenerator.cpp">
+      <Filter>资源导入\模型资源</Filter>
+    </ClCompile>
+    <ClCompile Include="DDSTextureLoader12.cpp">
+      <Filter>资源导入\纹理资源</Filter>
+    </ClCompile>
+    <ClCompile Include="D3DTools.cpp">
+      <Filter>辅助结构体</Filter>
+    </ClCompile>
+    <ClCompile Include="MeshGeometry.cpp">
+      <Filter>渲染数据</Filter>
+    </ClCompile>
+    <ClCompile Include="FrameResource.cpp">
+      <Filter>渲染数据</Filter>
+    </ClCompile>
+    <ClCompile Include="DDSTextureLoader.cpp">
+      <Filter>资源导入\纹理资源</Filter>
+    </ClCompile>
+    <ClCompile Include="D2DTextRenderer.cpp">
+      <Filter>辅助渲染器</Filter>
+    </ClCompile>
+    <ClCompile Include="ReflectionRTT.cpp">
+      <Filter>反射项</Filter>
+    </ClCompile>
+    <ClCompile Include="RayCaster.cpp">
+      <Filter>射线检测</Filter>
+    </ClCompile>
+    <ClCompile Include="Scene.cpp">
+      <Filter>场景对象</Filter>
+    </ClCompile>
+    <ClCompile Include="Node.cpp">
+      <Filter>场景对象</Filter>
+    </ClCompile>
+    <ClCompile Include="Camera.cpp">
+      <Filter>摄像机</Filter>
+    </ClCompile>
+    <ClCompile Include="ICameraController.cpp">
+      <Filter>输入控制</Filter>
+    </ClCompile>
+    <ClCompile Include="InputManage.cpp">
+      <Filter>输入控制</Filter>
+    </ClCompile>
+    <ClCompile Include="GameTimer.cpp">
+      <Filter>应用程序\计时器</Filter>
+    </ClCompile>
+    <ClCompile Include="DebugLineRenderer.cpp">
+      <Filter>辅助渲染器</Filter>
+    </ClCompile>
+    <ClCompile Include="AnimationClip.cpp">
+      <Filter>渲染数据</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletonComponent.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BoxGameApp.h">
+      <Filter>应用程序</Filter>
+    </ClInclude>
+    <ClInclude Include="GameApp.h">
+      <Filter>应用程序\基类</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderComponent.h">
+      <Filter>组件</Filter>
+    </ClInclude>
+    <ClInclude Include="CollisionComponent.h">
+      <Filter>组件</Filter>
+    </ClInclude>
+    <ClInclude Include="Component.h">
+      <Filter>组件</Filter>
+    </ClInclude>
+    <ClInclude Include="GeoGenerator.h">
+      <Filter>资源导入\模型资源</Filter>
+    </ClInclude>
+    <ClInclude Include="DDSTextureLoader.h">
+      <Filter>资源导入\纹理资源</Filter>
+    </ClInclude>
+    <ClInclude Include="DDSTextureLoader12.h">
+      <Filter>资源导入\纹理资源</Filter>
+    </ClInclude>
+    <ClInclude Include="D3DTools.h">
+      <Filter>辅助结构体</Filter>
+    </ClInclude>
+    <ClInclude Include="DxException.h">
+      <Filter>辅助结构体</Filter>
+    </ClInclude>
+    <ClInclude Include="DxMath.h">
+      <Filter>辅助结构体</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshGeometry.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderData.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="Vertex.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="UpLoadBuffer.h">
+      <Filter>辅助结构体</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderLayer.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameResource.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="D2DTextRenderer.h">
+      <Filter>辅助渲染器</Filter>
+    </ClInclude>
+    <ClInclude Include="DebugLineRenderer.h">
+      <Filter>辅助渲染器</Filter>
+    </ClInclude>
+    <ClInclude Include="ReflectionRTT.h">
+      <Filter>反射项</Filter>
+    </ClInclude>
+    <ClInclude Include="RayCaster.h">
+      <Filter>射线检测</Filter>
+    </ClInclude>
+    <ClInclude Include="Scene.h">
+      <Filter>场景对象</Filter>
+    </ClInclude>
+    <ClInclude Include="Node.h">
+      <Filter>场景对象</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera.h">
+      <Filter>摄像机</Filter>
+    </ClInclude>
+    <ClInclude Include="Frustum.h">
+      <Filter>摄像机</Filter>
+    </ClInclude>
+    <ClInclude Include="ICameraController.h">
+      <Filter>输入控制</Filter>
+    </ClInclude>
+    <ClInclude Include="InputManage.h">
+      <Filter>输入控制</Filter>
+    </ClInclude>
+    <ClInclude Include="GameTimer.h">
+      <Filter>应用程序\计时器</Filter>
+    </ClInclude>
+    <ClInclude Include="PCH.h">
+      <Filter>辅助结构体</Filter>
+    </ClInclude>
+    <ClInclude Include="Skeleton.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="AnimationClip.h">
+      <Filter>渲染数据</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletonComponent.h" />
+  </ItemGroup>
+</Project>
