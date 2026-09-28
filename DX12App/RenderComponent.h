@@ -17,15 +17,14 @@ struct SubmeshDraw
 
 	// 顶点数据		          
 	MeshGeometry*    meshGeo      = nullptr;                   // 网格几何体
-	std::string      submeshName  = "";                        // 子网格名字
+	std::string      submeshName;                              // 子网格名字
 	SubmeshGeometry  submesh      = {};                        // 子网格数据
 	EVertexLayout    layout       = EVertexLayout::Standard;   // 顶点布局
 						     			   
-	// 着色器数据	         			   
-	Material*           material      = nullptr;                   // 材质数据
-	int                 objCBIndex    = -1;                        // 常量缓冲区索引
-	bool                isSkinned     = false;                     // 是否蒙皮
-	DirectX::XMFLOAT4X4 texTransform  = DxMath::Identity4x4();     // 纹理变换
+	// 着色器数据	         			   					   
+	Material*           material      = nullptr;               // 材质数据
+	int                 objCBIndex    = -1;                    // 常量缓冲区索引
+	DirectX::XMFLOAT4X4 texTransform  = DxMath::Identity4x4(); // 纹理变换
 	
 
 	// 渲染状态

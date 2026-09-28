@@ -10,9 +10,10 @@ enum class RenderLayer
     Debug       = 4,   // 调试层渲染
     Transparent = 5,   // 透明渲染
     AlphaTest   = 6,   // 透明测试渲染
-    Mirror       =7,   // 镜面渲染
+    Mirror      = 7,   // 镜面渲染
 	Wave		= 8,   // 波浪渲染
 	Terrain	    = 9,   // 地形渲染
+    Skinned     =10,   // 蒙皮渲染
     Count,
 };
 

@@ -1,9 +1,8 @@
 
-
-
 // 标准着色器,
 // 只处理漫反射纹理和法线纹理
 // 提供动态环境反射效果
+// 提供骨骼动画
 
 
 #include "common.hlsl"// 经验光照计算着色器
@@ -17,7 +16,11 @@ struct VertexIn
     float3 PosL    : POSITION;
     float3 NormalL : NORMAL;
     float2 UV      : TEXCOORD;
-    float3 TangentU: TANGENT;
+    float3 TangentL: TANGENT;
+#ifdef  SKINNED  //有骨骼时输入结构体
+    float4 BoneWeights : BONEWEIGHTS;
+    uint4  BoneIndices : BONEINDICES;
+#endif
 };
 
 struct VertexOut
@@ -33,6 +36,38 @@ VertexOut VS(VertexIn vin)
 {
     VertexOut vout = (VertexOut) 0.0f;//初始化
     
+#ifdef  SKINNED //有骨骼时顶点更改
+    
+    //获取权重
+    float weights[4] = { 0, 0, 0, 0 };
+    weights[0] = vin.BoneWeights.x;
+    weights[1] = vin.BoneWeights.y;
+    weights[2] = vin.BoneWeights.z;
+    // 归一化
+    weights[3] = 1.0f - weights[0] - weights[1] - weights[2];
+    
+    float3 posL = float3(0.0f, 0.0f, 0.0f);
+    float3 normalL = float3(0.0f, 0.0f, 0.0f);
+    float3 tangentL = float3(0.0f, 0.0f, 0.0f);
+    
+    [unroll]// 建议展开
+    for (int i = 0; i < 4; ++i)
+    {
+        //全局骨骼索引
+        uint gBoneIndex = vin.BoneIndices[i] + gBoneOffset;
+        //获取骨骼变换矩阵
+        float4x4 boneTran = gBoneTransforms[gBoneIndex];
+        
+        //变换顶点数据
+        posL += weights[i] * mul(float4(vin.PosL, 1.0f), boneTran).xyz;
+        normalL += weights[i] * mul(vin.NormalL, (float3x3)boneTran);
+        tangentL += weights[i] * mul(vin.TangentL, (float3x3) boneTran);
+    }
+    vin.PosL = posL;
+    vin.NormalL = normalL;
+    vin.TangentL = tangentL;
+#endif
+    
     //->世界空间位置
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW;
@@ -41,7 +76,7 @@ VertexOut VS(VertexIn vin)
     vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
     
     //->世界空间切线
-    vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
+    vout.TangentW = mul(vin.TangentL, (float3x3) gWorld);
     //->齐次裁剪空间位置
     vout.PosH = mul(posW, gViewProj);
     

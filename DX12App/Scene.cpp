@@ -3,13 +3,15 @@
 #include "Node.h"
 #include "DDSTextureLoader.h"
 #include "FrameResource.h"
-#include "Camera.h"
 #include "RenderComponent.h"
 #include "CollisionComponent.h"
+#include "SkeletonComponent.h"
+#include "Skeleton.h"
+#include "AnimationClip.h"
 #include "d3dx12.h"
 
-
 using namespace DirectX;
+
 Scene::Scene(ID3D12Device* device, 
 			 ID3D12GraphicsCommandList* cmdList, 
 			 UINT cbvSrvUavDescSize)
@@ -115,6 +117,24 @@ Material* Scene::RegisterMaterial(const std::string& name,
 	//移入材质表
 	m_materials[name] = std::move(mat);
 	return m_materials[name].get();
+}
+
+Skeleton* Scene::RegisterSkeleton(const std::string& name, Skeleton&& skeleton)
+{
+	// 构建对象指针
+	auto skel = std::make_unique<Skeleton>(std::move(skeleton));
+	auto* pSkel = skel.get();
+	m_skeletons[name] = std::move(skel);
+	return pSkel;
+}
+
+AnimationClip* Scene::RegisterAnimate(const std::string& name, AnimationClip&& clip)
+{
+	// 构建对象指针
+	auto anClip = std::make_unique<AnimationClip>(std::move(clip));
+	auto* pClip = anClip.get();
+	m_animateClips[name] = std::move(anClip);
+	return pClip;
 }
 
 void Scene::SaveSRVToHeap(ID3D12Device* device,
@@ -317,8 +337,6 @@ void Scene::RemoveNode(const std::string& name)
 			vec.erase(std::remove(vec.begin(), vec.end(), pNode), vec.end());
 		};
 
-	RemoveNode(m_dynamicNodes);
-	RemoveNode(m_staticNodes);
 	RemoveNode(m_renderNodes);
 	RemoveNode(m_collisionNodes);
 
@@ -359,9 +377,10 @@ Node* Scene::GetNode(const std::string& name)
 
 void Scene::Update(float dt, FrameResource* frame)
 {
+	// 重置绘制统计
 	ResetDrawStats();
 	
-	//组件更新
+	// 组件更新
 	for (auto& pNode : m_nodes)
 	{
 		for (auto& comp : pNode->GetComponentAll())
@@ -369,92 +388,17 @@ void Scene::Update(float dt, FrameResource* frame)
 	}
 	
 
-	//更新所有节点的世界矩阵
+	// 更新所有节点的世界矩阵
 	UpdateWorldTransforms();
-	//包围盒更新
+	// 包围盒更新
 	UpdateBounds();
-	//视锥体剔除
+	// 视锥体剔除
 	CullFrustum();
+	// 更新对象常量缓冲区
+	UpdateObjCB(frame);
+	// 更新材质缓冲区
+	UpdateMatCB(frame);
 
-	//常量缓冲区
-	auto* objCB = frame->objectCBuffer.get();
-	
-	for (auto* pNode : m_renderNodes)
-	{
-		auto* renderComp = pNode->GetComponent<RenderComponent>();
-		if (!renderComp)continue;
-
-		
-		bool anyDirty = pNode->IsDirty();//节点脏
-		if (!anyDirty)//如果节点不脏,检查子网格是否脏
-		{
-			for (auto& sub : renderComp->GetSubmeshs())
-			{
-				if (sub.numFrameDirty > 0)
-				{
-					anyDirty = true; 
-					break;
-				}
-			}
-				
-		}
-
-		//更新对象常量缓冲区
-		if (anyDirty)//脏就更新
-		{
-			//更新矩阵
-			XMMATRIX world = XMLoadFloat4x4(&pNode->worldTransform);
-			for (auto& sub : renderComp->GetSubmeshs())
-			{
-				if (sub.numFrameDirty <= 0)continue;
-				ObjectConstants objC;
-				XMStoreFloat4x4(&objC.world, XMMatrixTranspose(world));
-				//更新子网格部分数据
-				XMMATRIX texTransform = XMLoadFloat4x4(&sub.texTransform);
-				XMStoreFloat4x4(&objC.texTransform, XMMatrixTranspose(texTransform));
-				objC.materialIndex = (sub.material ? sub.material->matBufferIndex : -1);
-
-				objCB->CopyData(sub.objCBIndex, objC);
-				sub.numFrameDirty--;
-			}
-			
-			pNode->numFrameDirty--;
-			
-		}
-	}
-	
-
-	//更新材质缓冲区
-	auto* matCB = frame->matBuffer.get();
-	for (auto& item : m_materials)
-	{
-		auto mat = item.second.get();
-
-		if (mat->numFrameDirty > 0)
-		{
-			//更新矩阵和材质数据
-			XMMATRIX matTransform = XMLoadFloat4x4(&mat->matTransform);
-
-			MaterialData matData;
-			XMStoreFloat4x4(&matData.matTransform, XMMatrixTranspose(matTransform));
-			matData.diffAlbedo = mat->diffAlbedo;
-			matData.fresnelR0 = mat->fresnelR0;
-			matData.roughness = mat->roughness;
-			matData.matLayerCount = mat->matLayerCount;
-			for (UINT i=0;i<MAX_TEXLAYER;++i)
-			{
-				matData.layers[i].diffMapIndex = mat->layers[i].diffMapIndex;
-				matData.layers[i].norMapIndex = mat->layers[i].norMapIndex;
-				matData.layers[i].rotation = mat->layers[i].rotation;
-				matData.layers[i].uvScale = mat->layers[i].uvScale;
-				matData.layers[i].uvSpeed = mat->layers[i].uvSpeed;
-				matData.layers[i].weight = mat->layers[i].weight;
-			}
-
-			matCB->CopyData(mat->matBufferIndex, matData);
-			--mat->numFrameDirty;
-		}
-	}
 }
 
 void Scene::Draw(ID3D12PipelineState* pso, 
@@ -614,6 +558,18 @@ Material* Scene::GetMaterial(const std::string& name)
 	return it == m_materials.end() ? nullptr : it->second.get();
 }
 
+Skeleton* Scene::GetSkeleton(const std::string& name)
+{
+	auto it = m_skeletons.find(name);
+	return it == m_skeletons.end() ? nullptr : it->second.get();
+}
+
+AnimationClip* Scene::GetAnimate(const std::string& name)
+{
+	auto it = m_animateClips.find(name);
+	return it == m_animateClips.end() ? nullptr : it->second.get();
+}
+
 void Scene::ReBuildNodeList()
 {
 	//先清理旧表
@@ -701,6 +657,120 @@ void Scene::UpdateBounds()
 	}
 }
 
+void Scene::UpdateObjCB(FrameResource* frame)
+{
+	//常量缓冲区
+	auto* objCB = frame->objectCBuffer.get();
+
+	for (auto* pNode : m_renderNodes)
+	{
+		// 获取渲染组件
+		auto* renderComp = pNode->GetComponent<RenderComponent>();
+		if (!renderComp)continue;
+
+		bool anyDirty = pNode->IsDirty();//节点脏
+
+		if (!anyDirty)//如果节点不脏,检查子网格是否脏
+		{
+			for (auto& sub : renderComp->GetSubmeshs())
+			{
+				//如果该子网格脏,就将该节点设置为要更新
+				if (sub.numFrameDirty > 0)
+				{
+					anyDirty = true;
+					break;
+				}
+			}
+		}
+		else // 更新对象常量缓冲区
+		{
+			XMMATRIX world = XMLoadFloat4x4(&pNode->worldTransform);
+			for (auto& sub : renderComp->GetSubmeshs())
+			{
+				if (sub.numFrameDirty <= 0)continue;
+				ObjectConstants objC;
+				//更新世界矩阵
+				XMStoreFloat4x4(&objC.world, XMMatrixTranspose(world));
+				//更新纹理变换矩阵
+				XMMATRIX texTransform = XMLoadFloat4x4(&sub.texTransform);
+				XMStoreFloat4x4(&objC.texTransform, XMMatrixTranspose(texTransform));
+				//更新材质索引
+				objC.materialIndex = (sub.material ? sub.material->matBufferIndex : -1);
+				//更新骨骼偏移(没有就为0)
+				objC.boneOffset = 0;
+				if (auto* skel = pNode->GetComponent<SkeletonComponent>())
+					objC.boneOffset = skel->m_boneCBOffset;
+
+				objCB->CopyData(sub.objCBIndex, objC);
+				sub.numFrameDirty--;
+			}
+			pNode->numFrameDirty--;
+		}
+	}
+}
+
+void Scene::UpdateMatCB(FrameResource* frame)
+{
+	//更新材质缓冲区
+	auto* matCB = frame->matBuffer.get();
+	for (auto& item : m_materials)
+	{
+		auto mat = item.second.get();
+
+		if (mat->numFrameDirty > 0)
+		{
+			//更新矩阵和材质数据
+			XMMATRIX matTransform = XMLoadFloat4x4(&mat->matTransform);
+
+			MaterialData matData;
+			XMStoreFloat4x4(&matData.matTransform, XMMatrixTranspose(matTransform));
+			matData.diffAlbedo = mat->diffAlbedo;
+			matData.fresnelR0 = mat->fresnelR0;
+			matData.roughness = mat->roughness;
+			matData.matLayerCount = mat->matLayerCount;
+			for (UINT i = 0; i < MAX_TEXLAYER; ++i)
+			{
+				matData.layers[i].diffMapIndex = mat->layers[i].diffMapIndex;
+				matData.layers[i].norMapIndex = mat->layers[i].norMapIndex;
+				matData.layers[i].rotation = mat->layers[i].rotation;
+				matData.layers[i].uvScale = mat->layers[i].uvScale;
+				matData.layers[i].uvSpeed = mat->layers[i].uvSpeed;
+				matData.layers[i].weight = mat->layers[i].weight;
+			}
+
+			matCB->CopyData(mat->matBufferIndex, matData);
+			--mat->numFrameDirty;
+		}
+	}
+}
+
+void Scene::UpdateBoneCB(FrameResource* frame)
+{
+	auto* boneCB = frame->boneBuffer->Resource();
+	static std::vector<XMFLOAT4X4> finalTransform;
+
+	for (auto* pNode : m_skeletonNodes)
+	{
+		// 获取蒙皮组件
+		auto* skelComp = pNode->GetComponent<SkeletonComponent>();
+		if (!skelComp || !skelComp->m_skeleton) continue;
+
+		// 视锥体外,不可见的不更新
+		auto renderComp = pNode->GetComponent<RenderComponent>();
+		if (!renderComp)continue;
+		if (renderComp->isCull || !renderComp->isVisible)continue;
+
+		//计算最终变换矩阵
+		skelComp->CalFinalTransforms(finalTransform);
+		//写入缓冲区
+		frame->boneBuffer->CopyData(
+			finalTransform.data(),   
+			finalTransform.size(),    
+			skelComp->m_boneCBOffset); //缓冲区计入开始位置
+	}
+
+}
+
 void Scene::AttachToView(Node* node, RenderComponent* comp)
 {
 	m_renderNodes.push_back(node);
@@ -709,8 +779,18 @@ void Scene::AttachToView(Node* node, RenderComponent* comp)
 void Scene::AttachToView(Node* node, CollisionComponent* comp)
 {
 	m_collisionNodes.push_back(node);
-	if (comp->isStatic) m_staticNodes.push_back(node);
-	else m_dynamicNodes.push_back(node);
+}
+
+void Scene::AttachToView(Node* node, SkeletonComponent* comp)
+{
+	m_skeletonNodes.push_back(node);
+
+	// 记录骨骼数量偏移
+	// 只有蒙皮组件注册才记录
+	uint32_t count = comp->m_skeleton ? comp->m_skeleton->GetBonesCount() : 0;
+	// 在Scene中累计骨骼偏移量传给每个蒙皮组件
+	comp->m_boneCBOffset = m_nextBoneOffset;
+	m_nextBoneOffset += count;
 }
 
 int Scene::AllocObjCBIndex()

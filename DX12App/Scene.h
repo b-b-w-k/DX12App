@@ -10,7 +10,6 @@
 #include "MeshGeometry.h"// 几何体数据
 #include "D3DTools.h"    // DX工具方法
 
-class Camera;
 class FrameResource;
 class RenderComponent;
 class CollisionComponent;
@@ -18,6 +17,9 @@ class SubmeshDraw;
 class Node;
 class RenderComponent;
 class CollisionComponent;
+class SkeletonComponent;
+class AnimationClip;
+class Skeleton;
 
 
 //绘制统计信息
@@ -100,6 +102,12 @@ public:
 		                       float roughness = 0.5f,                                  // 粗糙度
                                const std::vector<MaterialLayerDesc>& layerDescs = {});  // 纹理层
 
+    // 注册骨架(所有模型的骨架保存在一处)
+    Skeleton* RegisterSkeleton(const std::string& name, Skeleton&& skeleton);
+
+    // 注册动画
+    AnimationClip* RegisterAnimate(const std::string& name, AnimationClip&& clip);
+
 	// 将纹理资源描述符拷贝到堆中,用于着色器访问
     //资源注册完后执行
 	void SaveSRVToHeap(ID3D12Device* device,          // 设备指针
@@ -144,6 +152,7 @@ public:
 
 	void AttachToView(Node* node, RenderComponent* comp);   
 	void AttachToView(Node* node, CollisionComponent* comp);
+	void AttachToView(Node* node, SkeletonComponent* comp);
     
     // ====== 设置成员 ======
      
@@ -175,20 +184,22 @@ public:
 	const std::vector<Node*>& GetRenderObjects() { return m_renderNodes; }
 	// 获取所有碰撞对象(要碰撞)
 	const std::vector<Node*>& GetCollisionNodes() const { return m_collisionNodes; }
-	// 获取所有静态对象
-	const std::vector<Node*>& GetStaticNodes() const { return m_staticNodes; }
-	// 获取所有动态对象
-	const std::vector<Node*>& GetDynamicNodes()const { return m_dynamicNodes; }
+    // 获取所有蒙皮对象(有动画)
+	const std::vector<Node*>& GetSkeletonNodes() const { return m_skeletonNodes; }
 
 	// 获取单个资源数据
 	Texture*      GetTexture (const std::string& name);   // 纹理
 	MeshGeometry* GetGeometry(const std::string& name);   // 网格
 	Material*     GetMaterial(const std::string& name);   // 材质
+    Skeleton*     GetSkeleton(const std::string& name);   // 骨骼
+    AnimationClip*GetAnimate (const std::string& name);   // 动画
 
     // 获取数量
 	UINT GetMaterialNum() const { return (UINT)m_materials.size(); }
 	UINT GetTextureNum()  const { return (UINT)m_textures.size(); }
     UINT GetGeometryNum() const { return (UINT)m_geometries.size(); }
+    UINT GetSkeletonNum() const { return (UINT)m_skeletons.size(); }
+    UINT GetAnimateNum()  const { return (UINT)m_animateClips.size(); }
     UINT GetRenderNum()   const { return (UINT)m_renderNodes.size(); }
     UINT GetSubmeshNum()  const { return  m_drawStats.totalSubmeshs;}
    
@@ -217,10 +228,13 @@ private:
     // 对象到观察点的距离
     float DistSqSubmeshToEye(const SubmeshDraw* sub);
 
-    void CullFrustum();           // 视锥体剔除
-    void ReBuildNodeList();       // 重建对象线性表(BFS拓扑排序)
-    void UpdateWorldTransforms(); // 更新节点对象的世界变换矩阵(根据线性表)
-    void UpdateBounds();          // 更新节点对象的包围盒(根据世界变换矩阵)
+	void CullFrustum();                      // 视锥体剔除
+	void ReBuildNodeList();                  // 重建对象线性表(BFS拓扑排序)
+	void UpdateWorldTransforms();            // 更新节点对象的世界变换矩阵(根据线性表)
+	void UpdateBounds();                     // 更新节点对象的包围盒(根据世界变换矩阵)
+	void UpdateObjCB(FrameResource* frame);  // 更新节点对象的对象常量缓冲区
+	void UpdateMatCB(FrameResource* frame);  // 更新节点对象的材质常量缓冲区
+	void UpdateBoneCB(FrameResource* frame); // 更新节点对象的骨骼常量缓冲区
    
 private:
 
@@ -231,9 +245,11 @@ private:
 
 
     // 资源(数据层,真实数据)
-    std::unordered_map<std::string, std::unique_ptr<Texture>>      m_textures;  // 所有纹理资源
-    std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_geometries;// 所有网格数据
-    std::unordered_map<std::string, std::unique_ptr<Material>>     m_materials; // 所有材质数据
+    std::unordered_map<std::string, std::unique_ptr<Texture>>       m_textures;     // 所有纹理资源
+    std::unordered_map<std::string, std::unique_ptr<MeshGeometry>>  m_geometries;   // 所有网格数据
+    std::unordered_map<std::string, std::unique_ptr<Material>>      m_materials;    // 所有材质数据
+    std::unordered_map<std::string, std::unique_ptr<Skeleton>>      m_skeletons;    // 所有骨架数据
+    std::unordered_map<std::string, std::unique_ptr<AnimationClip>> m_animateClips; // 所有骨架数据
 
 	//地形高度图(地形高度数据)
 	std::vector<float> m_terrainHeightData;     // 地形高度图数据(R8)
@@ -248,8 +264,8 @@ private:
     // 场景对象视图表
 	std::vector<Node*> m_renderNodes;                             // 场景中所有要渲染的对象
 	std::vector<Node*> m_collisionNodes;                          // 场景中所有要碰撞的对象
-	std::vector<Node*> m_staticNodes;                             // 场景中所有静态的对象
-	std::vector<Node*> m_dynamicNodes;                            // 场景中所有动态的对象
+	std::vector<Node*> m_skeletonNodes;                           // 场景中所有有骨骼的对象
+
 	std::unordered_map<std::string, Node*> m_nodeByName;          // 便于查找场景对象
 	std::vector<SubmeshDraw*> m_layers[(int)RenderLayer::Count];  // 渲染层级数组,相同渲染层级统一渲染
     std::vector<SubmeshDraw*> m_visibleList;                      // 可见列表,用于绘制时剔除不可见对象
@@ -273,8 +289,9 @@ private:
 
     // 自动索引分配
     std::vector<int> m_freeCBIndexPool;                           // 空闲常量缓冲区索引池
-    int  m_nextObjCBIndex = 0;                                    // 自动推出下一个ObjCB的索引
-    int  m_nextMatIndex   = 0;                                    // 自动推出下一个MatCB的索引
+    int      m_nextObjCBIndex = 0;                                // 自动推出下一个ObjCB的索引
+    int      m_nextMatIndex   = 0;                                // 自动推出下一个MatCB的索引
+    uint32_t m_nextBoneOffset = 0;                                // 自动推出下一个骨骼的偏移
 
 };
 

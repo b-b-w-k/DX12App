@@ -14,7 +14,7 @@ struct VertexIn
     float3 PosL     : POSITION;
     float3 NormalL  : NORMAL;
     float2 UV       : TEXCOORD;
-    float3 TangentU : TANGENT;
+    float3 TangentL : TANGENT;
 };
 
 struct VertexOut
@@ -39,7 +39,7 @@ VertexOut VS(VertexIn vin)
     vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
     
     //->世界空间切线
-    vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
+    vout.TangentW = mul(vin.TangentL, (float3x3) gWorld);
     
     //->齐次裁剪空间位置
     vout.PosH = mul(posW, gViewProj); //光栅化会自动除以w分量，得到屏幕空间位置

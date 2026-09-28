@@ -15,7 +15,7 @@ public:
 
 	ID3D12Resource* Resource()const;
 
-	void CopyData(int elementIndex, const T& data);//复制一块数据
+	void CopyData(int elementIndex, const T& data);//复制一个数据
 	void CopyData(const T* data, UINT count, UINT elementIndex = 0);//复制一批数据
 
 private:

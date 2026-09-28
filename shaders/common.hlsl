@@ -2,6 +2,7 @@
 //包含着色器文件的公共部分
 //常量缓冲区...着色器资源
 //灯光数量定义
+//公共函数
 
 #ifndef NUM_DIR_LIGHTS
 #define NUM_DIR_LIGHTS   1
@@ -15,6 +16,7 @@
 
 #include "light.hlsl"//经验光照计算着色器
 
+// 材质层级结构体
 struct MaterialLayerData
 {
     int    diffMapIndex;
@@ -37,13 +39,20 @@ struct MaterialData
     int matLayerCount;
     int matPad[3];
 };
-//材质结构体缓冲区,存放材质数据
+
+// 纹理资源数组,可以存放不同大小的纹理资源
+// 静态立方体纹理
+TextureCube gCubeTexMap : register(t0, space0);
+
+// 材质结构体缓冲区,存放材质数据
 StructuredBuffer<MaterialData> gMaterialData : register(t0, space1);
 
-//纹理资源数组,可以存放不同大小的纹理资源
-//静态立方体纹理
-TextureCube gCubeTexMap : register(t0, space0);
-//2D纹理资源
+// t2是动态反射纹理(平面/立方体)按需提供
+
+// 骨骼结构体缓冲区,存放骨骼最终变换矩阵
+StructuredBuffer<float4x4> gBoneTransforms : register(t0, space3);
+
+// 2D纹理资源
 Texture2D   gTextureMap[4] : register(t1);
 
 
@@ -62,7 +71,7 @@ cbuffer ObjectCB : register(b0)
     float4x4 gWorld;
     float4x4 gTexTransform;
     uint     gMaterialIndex;
-    uint     gObjPad0;
+    uint     gBoneOffset;
     uint     gObjPad1;
     uint     gObjPad2;
 };

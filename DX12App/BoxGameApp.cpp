@@ -716,9 +716,13 @@ void BoxGameApp::GameRender()
 	skyTexDesc.Offset(m_scene->GetSkyBoxIndex(), m_cbvSrvDescSize);
 	m_commandList->SetGraphicsRootDescriptorTable(3, skyTexDesc);
 
-	//2D纹理根描述符从头开始
+	//2D纹理根描述符从堆首开始
 	m_commandList->SetGraphicsRootDescriptorTable(
 		4, m_globalSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+	// 骨骼变换矩阵
+	auto* boneBuffer = m_curFrameResource->boneBuffer->Resource();
+	m_commandList->SetGraphicsRootShaderResourceView(6, boneBuffer->GetGPUVirtualAddress());
 
 	//绘制渲染项 相同pso统一渲染
 	
@@ -806,7 +810,7 @@ void BoxGameApp::BuildRootSignature()
 	refTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
 		1, 0, 2);//反射纹理t0,space2
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
 
 	//常量缓冲区视图形式
 	slotRootParameter[0].InitAsConstantBufferView(0);//objCB  b0
@@ -815,11 +819,12 @@ void BoxGameApp::BuildRootSignature()
 	slotRootParameter[3].InitAsDescriptorTable(1,&texTable0, D3D12_SHADER_VISIBILITY_PIXEL);//skyBox t0 sapce0
 	slotRootParameter[4].InitAsDescriptorTable(1,&texTable1, D3D12_SHADER_VISIBILITY_PIXEL);//tex t1 sapce0
 	slotRootParameter[5].InitAsDescriptorTable(1,&refTable, D3D12_SHADER_VISIBILITY_PIXEL);//ref t0 sapce2
+	slotRootParameter[6].InitAsShaderResourceView(0, 3);//bone t0 space3
 	
 	auto staticSamplers = GetStaticSamplers();//静态采样器
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(
-		6,                    //根参数数量
+		7,                    //根参数数量
 		slotRootParameter,    //根参数
 		staticSamplers.size(),//静态采样器数量
 		staticSamplers.data(),//静态采样器
@@ -851,14 +856,17 @@ void BoxGameApp::BuildRootSignature()
 
 void BoxGameApp::BuildFrameResource()
 {
+	// 支持12个角色*每128根骨骼
+	const uint32_t maxBones = 12 * 128;
+
 	for (int i = 0; i < numFrameResources; i++)
 	{
 		m_frameResources.push_back(std::make_unique<FrameResource>(
 			m_d3dDevice.Get(),
-			8,//过程常量+平面反射常量+Cube反射常量
-			m_scene->GetSubmeshNum(),
-			m_scene->GetMaterialNum(),
-			1));
+			8,//过程常量+平面反射常量+Cube反射CB
+			m_scene->GetSubmeshNum(), //对象CB
+			m_scene->GetMaterialNum(),//材质缓冲区
+			maxBones)); // 骨骼缓冲区
 	}
 }
 
@@ -870,20 +878,27 @@ void BoxGameApp::BuildShadersAndInputLayout()
 		"ALPHA_TEST","1",
 		NULL,NULL
 	};
+	const D3D_SHADER_MACRO skinnedDefine[] =
+	{
+		"SKINNED","1",
+		NULL,NULL
+	};
 
 	//hlsl着色器编译
 	//标准着色器
 	m_shaders["standardVS"] = D3DTools::CompileShader(L"..\\shaders\\standard.hlsl", nullptr, "VS", "vs_5_1");
 	m_shaders["standardPS"] = D3DTools::CompileShader(L"..\\shaders\\standard.hlsl", nullptr, "PS", "ps_5_1");
+	//alpha测试
+	m_shaders["alphaTestPS"] = D3DTools::CompileShader(L"..\\shaders\\standard.hlsl", alphaTestDefine, "PS", "ps_5_1");
+	//蒙皮着色器
+	m_shaders["skinnedVS"] = D3DTools::CompileShader(L"..\\shaders\\standard.hlsl", skinnedDefine, "VS", "vs_5_1");
 	//镜面/玻璃
-	m_shaders["mirrorVS"] = D3DTools::CompileShader(L"..\\shaders\\mirror.hlsl", nullptr, "VS", "vs_5_1");
 	m_shaders["mirrorPS"] = D3DTools::CompileShader(L"..\\shaders\\mirror.hlsl", nullptr, "PS", "ps_5_1");
 	//动态水面
 	m_shaders["wavePS"] = D3DTools::CompileShader(L"..\\shaders\\wave.hlsl", nullptr, "PS", "ps_5_1");
 	//地形
 	m_shaders["terrainPS"] = D3DTools::CompileShader(L"..\\shaders\\terrain.hlsl", nullptr, "PS", "ps_5_1");
-	//alpha测试
-	m_shaders["alphaTestPS"] = D3DTools::CompileShader(L"..\\shaders\\standard.hlsl", alphaTestDefine, "PS", "ps_5_1");
+	
 	//天空盒着色器
 	m_shaders["skyBoxVS"] = D3DTools::CompileShader(L"..\\shaders\\skyBox.hlsl", nullptr, "VS", "vs_5_1");
 	m_shaders["skyBoxPS"] = D3DTools::CompileShader(L"..\\shaders\\skyBox.hlsl", nullptr, "PS", "ps_5_1");
@@ -907,6 +922,16 @@ void BoxGameApp::BuildShadersAndInputLayout()
 		{"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 		{"COLOR",  0, DXGI_FORMAT_R32G32B32A32_FLOAT,0,12,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 		
+	};
+	//蒙皮输入布局描述
+	m_skinInputLayout =
+	{
+		{"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"NORMAL",  0,DXGI_FORMAT_R32G32B32_FLOAT,0,12,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,   0,24,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"TANGENT", 0,DXGI_FORMAT_R32G32B32_FLOAT,0,32,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"BONEWEIGHTS", 0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,44,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"BONEINDICES", 0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,60,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 	};
 
 }
@@ -945,7 +970,19 @@ void BoxGameApp::BuildPSO()
 		&opaquePsoDesc,
 		IID_PPV_ARGS(&m_PSOs["Opaque"])));
 
-	//地形
+	//================蒙皮================
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedPsoDesc = opaquePsoDesc;
+	skinnedPsoDesc.InputLayout = { m_skinInputLayout.data(),(UINT)m_skinInputLayout.size() };
+	skinnedPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(m_shaders["skinnedVS"]->GetBufferPointer()),
+		m_shaders["skinnedVS"]->GetBufferSize()
+	};
+	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
+		&skinnedPsoDesc,
+		IID_PPV_ARGS(&m_PSOs["Skinned"])));
+
+	//================地形================
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc = opaquePsoDesc;
 	terrainPsoDesc.PS =
 	{
@@ -991,10 +1028,6 @@ void BoxGameApp::BuildPSO()
 
 	//================镜面渲染================
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC mirrorPsoDesc = opaquePsoDesc;
-	mirrorPsoDesc.VS = { 
-		(BYTE*)m_shaders["mirrorVS"]->GetBufferPointer(),
-					 m_shaders["mirrorVS"]->GetBufferSize() 
-	};
 	mirrorPsoDesc.PS = { 
 		(BYTE*)m_shaders["mirrorPS"]->GetBufferPointer(),
 						 m_shaders["mirrorPS"]->GetBufferSize() 
