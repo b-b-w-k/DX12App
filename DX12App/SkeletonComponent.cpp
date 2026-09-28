@@ -4,12 +4,13 @@
 
 using namespace DirectX;
 
-void SkeletonComponent::Play(AnimationClip* clip, bool isloop)
+SkeletonComponent* SkeletonComponent::Play(AnimationClip* clip, bool isloop)
 {
 	m_clip = clip;
 	m_animTimer = 0.0f;
 	m_isPlaying = true;
 	m_isLoop = isloop;
+	return this;
 }
 
 void SkeletonComponent::Stop()

@@ -12,6 +12,9 @@
 #include "Component.h"
 #include "RenderComponent.h"
 #include "CollisionComponent.h"
+#include "SkeletonComponent.h"
+#include "AnimationClip.h"
+#include "Skeleton.h"
 
 
 
@@ -47,7 +50,7 @@ bool BoxGameApp::InitApp()
 	m_inputManage->InputInit();
 
 	// ===== 摄像机初始化 =====
-	m_camControl = std::make_unique<TPSCameraController>();//默认自由摄像机
+	m_camControl = std::make_unique<FlyCameraController>();//默认自由摄像机
 	m_camera.UpdateViewMatrix();//显示更新一次
 
 	
@@ -387,14 +390,14 @@ void BoxGameApp::DrawD2DText()
 		const auto& stats = m_scene->GetDrawStats();
 		swprintf_s(buf,
 			L"物体: %u / %u    剔除: %u\n"
-			L"绘制: %u    DrawCall: %u"
+			L"绘制子网格: %u    DrawCall: %u\n"
 			L"子网格: %u",
 			stats.visibleObjects,
 			stats.totalObjects,
 			stats.culledObjects,
-			stats.drawnObjects,
+			stats.drawnSubmeshs,
 			stats.drawCalls,
-			stats.totalSubmeshs);
+			m_scene->GetSubmeshNum());
 	}
 
 	//绘制开始
@@ -737,6 +740,9 @@ void BoxGameApp::GameRender()
 	m_scene->Draw(m_PSOs["Opaque"].Get(),
 		RenderLayer::Opaque, m_curFrameResource);
 
+	m_scene->Draw(m_PSOs["Skinned"].Get(),
+		RenderLayer::Skinned, m_curFrameResource);
+
 	m_scene->Draw(m_PSOs["Terrain"].Get(),
 		RenderLayer::Terrain, m_curFrameResource);
 
@@ -926,12 +932,12 @@ void BoxGameApp::BuildShadersAndInputLayout()
 	//蒙皮输入布局描述
 	m_skinInputLayout =
 	{
-		{"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
-		{"NORMAL",  0,DXGI_FORMAT_R32G32B32_FLOAT,0,12,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
-		{"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,   0,24,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
-		{"TANGENT", 0,DXGI_FORMAT_R32G32B32_FLOAT,0,32,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"POSITION",    0,DXGI_FORMAT_R32G32B32_FLOAT,   0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"NORMAL",      0,DXGI_FORMAT_R32G32B32_FLOAT,   0,12,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"TEXCOORD",    0,DXGI_FORMAT_R32G32_FLOAT,      0,24,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"TANGENT",     0,DXGI_FORMAT_R32G32B32_FLOAT,   0,32,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 		{"BONEWEIGHTS", 0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,44,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
-		{"BONEINDICES", 0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,60,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+		{"BONEINDICES", 0,DXGI_FORMAT_R8G8B8A8_UINT,     0,60,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 	};
 
 }
@@ -1170,8 +1176,22 @@ void BoxGameApp::BuildScene()
 	auto sphere = gen.CreatSphere(0.5f, 20, 20);              // 天空盒						           
 	auto box = gen.CreatBox(1, 1, 1, 1);                      // 基本几何体
 	auto mesh1 = gen.LoadMesh("../models/AK-H.fbx");          // 外部模型 
-	
+	auto skinnedData = gen.LoadSkinnedMesh("../models/Start Walking.fbx");
+	auto& player = skinnedData.mesh;
+	auto& animate = skinnedData.clips;
+	auto& skeleton = skinnedData.skeleton;
 
+	std::string animateName;
+	for (auto& pair : skinnedData.clips)
+	{
+		const std::string& name = pair.first;
+		animateName = name;
+		AnimationClip& clip = pair.second;
+		m_scene->RegisterAnimate(name, std::move(clip));
+	}
+	m_scene->RegisterSkeleton("player_skeleton", std::move(skeleton));
+	
+	m_scene->RegisterGeometry<SkeletonVertex>("geo_player",  std::move(player),  "sub_player", EVertexLayout::Skeleton); 
 	m_scene->RegisterGeometry<Vertex>("geo_terrain", std::move(terrain), "sub_terrain"); // 对象网格
 	m_scene->RegisterGeometry<Vertex>("geo_mesh1",   std::move(mesh1),   "sub_mesh1");   // 外部模型
 	m_scene->RegisterGeometry<Vertex>("geo_box",     std::move(box),     "sub_box");	 // 基本几何体
@@ -1259,10 +1279,22 @@ void BoxGameApp::BuildScene()
 	Node* obj_Ak = m_scene->AddRenderObject("mesh1", "geo_mesh1", "sub_mesh1", plasticMat, RenderLayer::Opaque);
 		obj_Ak->SetLocalTransform(
 			{ 0.0f, 1.0f, 0.0f },
-			{ -XM_PI * 0.5f, 0, 0 },
+			{ XM_PI * 0.5f, 0, 0 },
 			{ 0.005f,  0.005f,  0.005f });
-		obj_Ak->AddComponent<CollisionComponent>()
-			  ->SetCollisionType(ECollisionType::AABB);
+	obj_Ak->AddComponent<CollisionComponent>()
+		  ->SetCollisionType(ECollisionType::AABB);
+
+	Node* obj_player = m_scene->AddRenderObject("player", "geo_player", "sub_player", defaultMat, RenderLayer::Skinned);
+	obj_player->SetLocalTransform(
+		{ -3.0f, 0.0f, 7.0f },
+		{ 0, 0, 0 },
+		{ 0.05f,  0.05f,  0.05f });
+	obj_player->AddComponent<CollisionComponent>()
+		->SetCollisionType(ECollisionType::Triangle);
+	auto* skComp =obj_player->AddComponent<SkeletonComponent>()
+		->SetSkeleton(m_scene->GetSkeleton("player_skeleton"))
+		->Play(m_scene->GetAnimate(animateName.c_str()));
+	m_scene->AttachToView(obj_player, skComp);
 
 }
 

@@ -11,8 +11,9 @@ class SkeletonComponent
 	:public Component
 {
 public:
+	SkeletonComponent* SetSkeleton(Skeleton* skeleton) { m_skeleton = skeleton; return this; }
 	//播放
-	void Play(AnimationClip* clip, bool isloop = true);
+	SkeletonComponent* Play(AnimationClip* clip, bool isloop = true);
 	//停止
 	void Stop();
 	//更新

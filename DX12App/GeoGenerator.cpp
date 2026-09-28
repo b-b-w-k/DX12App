@@ -6,26 +6,387 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-
-
 #pragma comment(lib,"assimpd.lib")
 
-GeoGenerator::VertexMeshData GeoGenerator::LoadMesh(std::string fileName)
-{
-	VertexMeshData meshData;
+using namespace DirectX;
 
-	unsigned int flags = aiProcess_Triangulate;//变为三角面
+// 将assimp的矩阵转换为DX的矩阵(4x4)
+static XMFLOAT4X4 AiToDXMat4x4(const aiMatrix4x4& mat)
+{
+	XMFLOAT4X4 M;
+	M._11 = mat.a1; M._12 = mat.a2; M._13 = mat.a3; M._14 = mat.a4;
+	M._21 = mat.b1; M._22 = mat.b2; M._23 = mat.b3; M._24 = mat.b4;
+	M._31 = mat.c1; M._32 = mat.c2; M._33 = mat.c3; M._34 = mat.c4;
+	M._41 = mat.d1; M._42 = mat.d2; M._43 = mat.d3; M._44 = mat.d4;
+	return M;
+}
+
+// 通过名字查找当前节点是否是骨骼(保存在mesh中)
+static aiBone* FindBone(const aiScene* scene, const std::string& name)
+{
+	for (uint32_t m =0;m< scene->mNumMeshes;++m)
+	{
+		aiMesh* mesh = scene->mMeshes[m];//获取网格
+		for (uint32_t b =0;b< mesh->mNumBones;++b)//遍历网格中的骨骼
+		{
+			// 如果与网格中的骨骼匹配就返回
+			if (name == mesh->mBones[b]->mName.C_Str())
+				return mesh->mBones[b];
+		}
+
+	}
+	return nullptr;
+}
+
+// 遍历骨骼层次,DFS深度优先+显式栈
+// 保证拓扑序(根在前)
+static void TraverseBoneLayer(aiNode* root, //根节点
+							  const aiScene* scene, //场景入口
+							  std::vector<Bone>& bones)//输出骨骼(拓扑序)
+							 
+{
+
+	//声明显式栈
+	struct EntryStack
+	{
+		aiNode* node;   //遍历的节点
+		int parentIndex;//父节点索引
+	};
+
+	std::vector<EntryStack> stack;
+	stack.push_back({ root,-1 });//从根节点开始遍历,父索引为-1
+
+	while (!stack.empty())
+	{
+		//弹出尾部元素
+		EntryStack ele = stack.back();
+		stack.pop_back();
+
+		int myIndex = -1;//初始化本节点索引
+
+		//判断当前节点是否为骨骼
+		if (aiBone* aiBone = FindBone(scene, ele.node->mName.C_Str()))
+		{
+			//填写骨骼结构体
+			Bone bone;
+			bone.name = aiBone->mName.C_Str();
+			bone.InvBindPose = AiToDXMat4x4(aiBone->mOffsetMatrix);
+			bone.LocalBindPose = AiToDXMat4x4(ele.node->mTransformation);//默认姿态
+			bone.parentIndex = ele.parentIndex;
+
+			//先记录索引
+			myIndex = bones.size();
+			//再写入
+			bones.push_back(bone);
+		}
+		// 不是骨骼就继续
+
+		// 逆序压栈,保证遍历顺序为根后子
+		// 取出该节点所有的孩子压栈
+		for (int i = ele.node->mNumChildren - 1; i >= 0; --i)
+		{
+			stack.push_back(
+				{
+				ele.node->mChildren[i], //压入子节点
+				//如果根节点不是骨骼,就将当前节点的父索引设为最近父骨骼索引
+				myIndex >= 0 ? myIndex : ele.parentIndex 
+				});
+		}
+
+	}
+
+}
+
+// 插值动画帧(因为SRT时间轴不一定对齐)
+// 线性插值(ST)返回3d向量
+static aiVector3D  LerpVec(const aiVectorKey* keys, uint32_t num, float t)
+{
+	if (num == 0)return aiVector3D(0, 0, 0);// 没有帧
+	if (num == 1)return keys[0].mValue;     // 一帧
+	//首尾超出部分按首位帧补齐
+	if (t < keys[0].mTime)return keys[0].mValue;
+	if (t > keys[num-1].mTime)return keys[num-1].mValue;
+
+	//中间部分线性插值
+	for (uint32_t i = 0; i < num - 1; ++i)
+	{
+		if (t >= keys[i].mTime && t <= keys[i + 1].mTime)
+		{
+			//比例
+			float a = (t - keys[i].mTime) / (keys[i + 1].mTime - keys[i].mTime);
+			//插值
+			return keys[i].mValue * (1.0f - a) + keys[i + 1].mValue * a;
+		}
+	}
+	return keys[num - 1].mValue;
+}
+
+// 球面插值(R)返回四元数
+static aiQuaternion  SLerpQuat(const aiQuatKey* keys, uint32_t num, float t)
+{
+	if (num == 0)return aiQuaternion(1, 0, 0,0);// 没有帧
+	if (num == 1)return keys[0].mValue;     // 一帧
+	//首尾超出部分按首位帧补齐
+	if (t < keys[0].mTime)return keys[0].mValue;
+	if (t > keys[num - 1].mTime)return keys[num - 1].mValue;
+
+	//中间部分球面插值
+	for (uint32_t i = 0; i < num - 1; ++i)
+	{
+		if (t >= keys[i].mTime && t <= keys[i + 1].mTime)
+		{
+			//比例
+			float a = (t - keys[i].mTime) / (keys[i + 1].mTime - keys[i].mTime);
+			aiQuaternion r;
+			//内部球面插值函数
+			aiQuaternion::Interpolate(r, keys[i].mValue, keys[i + 1].mValue, a);
+			return r;
+		}
+	}
+	return keys[num - 1].mValue;
+}
+
+GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
+{
+	SkinnedData skinnedData;
+
+	unsigned int flags = aiProcess_Triangulate | //变为三角面
+						 aiProcess_LimitBoneWeights| // 限制每顶点骨骼数(max 4)
+						 aiProcess_ConvertToLeftHanded; //左手坐标系
+
 
 	const aiScene* scene = aiImportFile(fileName.c_str(), flags);//导入
 
 	//错误输出
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
-		const char* err = aiGetErrorString();
+		OutputDebugStringA(aiGetErrorString());
+		return SkinnedData();
+	}
+	auto debugStr = fileName + " import success!\n";
+	OutputDebugStringA(debugStr.c_str());
+
+	SkeletonMeshData& meshData = skinnedData.mesh;
+
+	// ======= 骨架提取 =======
+	std::vector<Bone> bones; //骨架
+	//遍历节点数获取所有骨骼
+	TraverseBoneLayer(scene->mRootNode, scene, bones);
+	//放入骨架结构体
+	skinnedData.skeleton.SetBones(std::move(bones));
+	
+	//设置调试信息
+	std::string boneStr = "boneNum" + std::to_string(skinnedData.skeleton.GetBonesCount()) + "\n";
+	OutputDebugStringA(boneStr.c_str());
+
+
+	//初始化包围盒
+	meshData.bound_min = { FLT_MAX, FLT_MAX, FLT_MAX };
+	meshData.bound_max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
+	// ======= 填充顶点数据 =======
+	for (UINT meshIndex = 0; meshIndex < scene->mNumMeshes; meshIndex++)
+	{
+		aiMesh* mesh = scene->mMeshes[meshIndex];
+		//顶点偏移
+		uint32_t vertexOffset = static_cast<int32_t>(meshData.vertices.size());
+		//顶点
+		for (UINT v = 0; v < mesh->mNumVertices; v++)
+		{
+
+			aiVector3D pos = mesh->mVertices[v];
+			aiVector3D nor = mesh->mNormals ? mesh->mNormals[v] : aiVector3D(0, 1, 0);
+			aiVector3D uv = (mesh->mTextureCoords[0] ? mesh->mTextureCoords[0][v] : aiVector3D(0, 0, 0));
+			aiVector3D tan = (mesh->mTangents ? mesh->mTangents[v] : aiVector3D(1, 0, 0));
+
+			SkeletonVertex vert = {};
+			vert.pos      = { pos.x, pos.y, pos.z };
+			vert.normal   = { nor.x, nor.y, nor.z };
+			vert.uv       = { uv.x, uv.y };
+			vert.tangentU = { tan.x, tan.y, tan.z };
+			//先置空,后面填骨骼权重
+			for (int k = 0; k < 4; ++k)
+			{
+				vert.boneWeights[k] = 0;
+				vert.boneIndices[k] = 0;
+			}
+			meshData.vertices.push_back(vert);
+
+			meshData.bound_min.x = std::min(meshData.bound_min.x, pos.x);
+			meshData.bound_min.y = std::min(meshData.bound_min.y, pos.y);
+			meshData.bound_min.z = std::min(meshData.bound_min.z, pos.z);
+			meshData.bound_max.x = std::max(meshData.bound_max.x, pos.x);
+			meshData.bound_max.y = std::max(meshData.bound_max.y, pos.y);
+			meshData.bound_max.z = std::max(meshData.bound_max.z, pos.z);
+		}
+
+		// ======= 填写骨骼权重,索引 =======
+		for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+		{
+			//不是骨骼就继续
+			aiBone* bone = mesh->mBones[b];
+			int boneIndex = skinnedData.skeleton.GetBoneIndex(bone->mName.C_Str());
+			if (boneIndex < 0)continue;
+			//先取骨骼权重
+			for (uint32_t i =0;i< bone->mNumWeights;++i)
+			{
+				const aiVertexWeight& weight = bone->mWeights[i];
+				// 获取骨骼影响的顶点索引
+				uint32_t vIndex = vertexOffset + weight.mVertexId;
+				if (vIndex >= meshData.vertices.size())continue;
+				// 获取骨骼影响的顶点
+				SkeletonVertex& v = meshData.vertices[vIndex];
+
+				//插入权重
+				for (int k = 0; k < 4; ++k)
+				{
+					//有空就插
+					if (v.boneWeights[k] == 0.0f)
+					{
+						//权重和索引
+						v.boneWeights[k] = weight.mWeight;
+						assert(boneIndex <= 256);
+						v.boneIndices[k] = (uint8_t)boneIndex;
+						break;
+					}
+				}
+
+			}
+		}
+		//索引
+		for (UINT f = 0; f < mesh->mNumFaces; f++)
+		{
+			aiFace face = mesh->mFaces[f];
+			for (UINT i = 0; i < face.mNumIndices; i++)
+			{
+				meshData.indices.push_back(vertexOffset + face.mIndices[i]);
+			}
+		}
+	}
+
+	// 权重归一化
+	for (auto& v : meshData.vertices)
+	{
+		float sum = v.boneWeights[0] + v.boneWeights[1] + 
+					v.boneWeights[2] + v.boneWeights[3];
+		//有骨骼权重
+		if (sum > 1e-8)
+		{
+			float a = 1.0f / sum;
+			for (int i = 0; i < 4; ++i)
+				v.boneWeights[i] *= a;
+		}
+		else//没有就将第一个骨骼权重设为1
+		{
+			v.boneWeights[0] = 1.0f;
+			v.boneIndices[0] = 0;
+		}
+	}
+
+	//输出调试信息
+	std::string vertexStr = "vertexNum" + std::to_string(meshData.vertices.size()) + "\n";
+	OutputDebugStringA(vertexStr.c_str());
+	std::string indexStr = "indexNum" + std::to_string(meshData.indices.size()) + "\n";
+	OutputDebugStringA(indexStr.c_str());
+
+	// ======== 提取动画 ========
+
+	const int boneCount = skinnedData.skeleton.GetBonesCount();
+
+	//遍历动画片段
+	for (uint32_t a = 0; a < scene->mNumAnimations; ++a)
+	{
+		aiAnimation* anim = scene->mAnimations[a];
+		AnimationClip clip;
+		clip.name = anim->mName.C_Str();
+
+		clip.boneAnimations.resize(boneCount);
+
+		//获取动画tick,用来获取描述
+		float ticksPerSecond = (anim->mTicksPerSecond > 0.0) ? (float)anim->mTicksPerSecond : 25.0f;
+
+		//遍历所有骨骼的动画片段
+		for (uint32_t c = 0; c < anim->mNumChannels; ++c)
+		{
+			//根据名字获取骨骼动画索引
+			aiNodeAnim* ch = anim->mChannels[c];
+			int boneIndex = skinnedData.skeleton.GetBoneIndex(ch->mNodeName.C_Str());
+			if (boneIndex < 0)continue;
+			//获取骨骼动画(要填充的)
+			BoneAnimation& ba = clip.boneAnimations[boneIndex];
+
+			//获取三种变换(SRT)的所有关键帧对应的时间
+			std::vector<float> times;
+			times.reserve(ch->mNumPositionKeys + ch->mNumRotationKeys + ch->mNumScalingKeys);
+
+			//填充T
+			for (UINT i = 0; i < ch->mNumPositionKeys; ++i)
+				times.push_back((float)ch->mPositionKeys[i].mTime);
+			//填充R
+			for (UINT i = 0; i < ch->mNumRotationKeys; ++i)
+				times.push_back((float)ch->mRotationKeys[i].mTime);
+			//填充S
+			for (UINT i = 0; i < ch->mNumScalingKeys; ++i)
+				times.push_back((float)ch->mScalingKeys[i].mTime);
+
+
+			//排序(升序)+去重
+			//因为SRT,开始结束的时间可能不同
+			//所以得到所有时段(最先开始,最后结束)的关键帧对三种变换进行均匀采样
+			std::sort(times.begin(), times.end());
+			times.erase(std::unique(times.begin(), times.end()), times.end());
+
+			//动画关键帧
+			ba.keyFrames.reserve(times.size());
+			for (float t : times)
+			{
+				//TS线性插值
+				aiVector3D T = LerpVec(ch->mPositionKeys, ch->mNumPositionKeys, t);
+				aiVector3D S = LerpVec(ch->mScalingKeys, ch->mNumScalingKeys, t);
+				//R球面插值
+				aiQuaternion R = SLerpQuat(ch->mRotationKeys, ch->mNumRotationKeys, t);
+
+				//填充关键帧
+				KeyFrame keyFrame;
+				keyFrame.curTime = t / ticksPerSecond; // 用ticksPerSecond将单位转换成秒
+				keyFrame.translation = { T.x, T.y, T.z };
+				keyFrame.scale = { S.x, S.y, S.z };
+				keyFrame.rotationQuat = { R.x, R.y, R.z, R.w };
+
+				ba.keyFrames.push_back(keyFrame);
+			}
+		}
+
+		//输出调试信息
+		std::string animStr = "anim: " + clip.name+ "  bones: " + std::to_string(clip.boneAnimations.size()) + "\n";
+		OutputDebugStringA(animStr.c_str());
+
+		//移入skinnedData
+		skinnedData.clips[clip.name] = std::move(clip);
+	}
+
+	aiReleaseImport(scene);//释放场景
+	return skinnedData;
+}
+
+GeoGenerator::VertexMeshData GeoGenerator::LoadMesh(const std::string fileName)
+{
+	VertexMeshData meshData;
+
+	unsigned int flags = aiProcess_Triangulate| //变为三角面
+		aiProcess_ConvertToLeftHanded;
+
+	const aiScene* scene = aiImportFile(fileName.c_str(), flags);//导入
+
+	//错误输出
+	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+	{
+		auto err = aiGetErrorString();
 		OutputDebugStringA(err);
 		return VertexMeshData();
 	}
-	OutputDebugStringA("import success!");
+	auto debugStr = fileName + " import success!\n";
+	OutputDebugStringA(debugStr.c_str());
 
 	meshData.bound_min = { FLT_MAX, FLT_MAX, FLT_MAX };
 	meshData.bound_max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -66,9 +427,9 @@ GeoGenerator::VertexMeshData GeoGenerator::LoadMesh(std::string fileName)
 			}
 		}
 	}
-	std::string vertexStr = "vertexNum" + std::to_string(meshData.vertices.size());
+	std::string vertexStr = "vertexNum" + std::to_string(meshData.vertices.size()) + "\n";
 	OutputDebugStringA(vertexStr.c_str());
-	std::string indexStr = "indexNum" + std::to_string(meshData.indices.size());
+	std::string indexStr = "indexNum" + std::to_string(meshData.indices.size()) + "\n";
 	OutputDebugStringA(indexStr.c_str());
 
 	aiReleaseImport(scene);//释放场景

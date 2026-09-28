@@ -289,10 +289,9 @@ Node* Scene::AddRenderObject(const std::string& name,
 		m_layers[(int)desc.layer].push_back(&sub);
 
 		//统计信息
-		m_drawStats.totalSubmeshs++;
+		m_totalSubmeshs++;
 
 	}
-	m_drawStats.drawnObjects++;
 	return pNode;
 
 }
@@ -350,7 +349,7 @@ void Scene::RemoveNode(const std::string& name)
 			layer.erase(std::remove(layer.begin(), layer.end(), &sub), layer.end());
 			//回收索引
 			RecycleObjCBIndex(sub.objCBIndex);
-			m_drawStats.totalSubmeshs--;
+			m_totalSubmeshs--;
 		}
 	}
 
@@ -398,6 +397,8 @@ void Scene::Update(float dt, FrameResource* frame)
 	UpdateObjCB(frame);
 	// 更新材质缓冲区
 	UpdateMatCB(frame);
+	//更新骨骼
+	UpdateBoneCB(frame);
 
 }
 
@@ -434,7 +435,7 @@ void Scene::Draw(ID3D12PipelineState* pso,
 			{
 				return DistSqSubmeshToEye(a) > DistSqSubmeshToEye(b);
 			};
-		std::sort(drawLayer.begin(), drawLayer.end(), pred);
+		std::sort(m_visibleList.begin(), m_visibleList.end(), pred);
 	}
 	else // 不透明物体排序
 	{
@@ -446,7 +447,7 @@ void Scene::Draw(ID3D12PipelineState* pso,
 				if (a->material != b->material)return a->material < b->material;
 				return a->primitiveType < b->primitiveType;
 			};
-		std::sort(drawLayer.begin(), drawLayer.end(), pred);
+		std::sort(m_visibleList.begin(), m_visibleList.end(), pred);
 	}
 
 	// ==== 渲染装配 ====
@@ -465,7 +466,7 @@ void Scene::Draw(ID3D12PipelineState* pso,
 
 	
 	//绘制所有当前层级的对象
-	for (auto* sub : drawLayer)
+	for (auto* sub : m_visibleList)
 	{
 		auto* renderComp = sub->renderComp;
 		
@@ -500,7 +501,7 @@ void Scene::Draw(ID3D12PipelineState* pso,
 			sub->submesh.indexCount, 1, sub->submesh.startIndex, sub->submesh.vertexOffset, 0);
 
 		//统计信息
-		++m_drawStats.drawnObjects;
+		++m_drawStats.drawnSubmeshs;
 		++m_drawStats.drawCalls;
 		++m_drawStats.perLayerDrawn[(int)layer];
 	}
@@ -682,7 +683,7 @@ void Scene::UpdateObjCB(FrameResource* frame)
 				}
 			}
 		}
-		else // 更新对象常量缓冲区
+		if(anyDirty) // 更新对象常量缓冲区
 		{
 			XMMATRIX world = XMLoadFloat4x4(&pNode->worldTransform);
 			for (auto& sub : renderComp->GetSubmeshs())
@@ -825,14 +826,18 @@ float Scene::DistSqSubmeshToEye(const SubmeshDraw* sub)
 void Scene::CullFrustum()
 {
 	//重置信息
+	m_drawStats.totalObjects   = 0;
 	m_drawStats.visibleObjects = 0;
 	m_drawStats.culledObjects  = 0;
+
 
 	for (auto* pNode : m_renderNodes)
 	{
 		//获取渲染组件
 		auto* renderComp = pNode->GetComponent<RenderComponent>();
 		if (!renderComp) continue;
+
+		
 
 		//天空盒,调试线不会被剔除
 		if (renderComp->neverCull)
@@ -845,7 +850,7 @@ void Scene::CullFrustum()
 			renderComp->isCull = !m_frustum.TestAABB(renderComp->bound_AABB);
 		}
 		
-
+		++m_drawStats.totalObjects;
 		//计入信息
 		if (!renderComp->isCull)
 			 ++m_drawStats.visibleObjects;

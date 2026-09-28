@@ -5,8 +5,10 @@
 #include <functional>
 #include <DirectXMath.h>
 #include "Vertex.h"
+#include "Skeleton.h"
+#include "AnimationClip.h"
 
-using namespace DirectX;
+
 class GeoGenerator
 {
 public:
@@ -17,17 +19,25 @@ public:
 	{
 		std::vector<T> vertices;
 		std::vector<uint32_t> indices;
-		XMFLOAT3 bound_min;
-		XMFLOAT3 bound_max;
+		DirectX::XMFLOAT3 bound_min;
+		DirectX::XMFLOAT3 bound_max;
 	};
 	//命名模板类型
 	using VertexMeshData = TMeshData<Vertex>;
 	using ColorMeshData = TMeshData<ColorVertex>;
+	using SkeletonMeshData = TMeshData<SkeletonVertex>;
 	// 定义高度采样器回调函数(根据采样坐标返回高度值)
 	using HeightSampler = std::function<float(float u, float v)>;
 
-	
-	VertexMeshData LoadMesh(std::string fileName);
+	struct SkinnedData
+	{
+		SkeletonMeshData mesh; // 网格
+		Skeleton skeleton;     // 骨架
+		std::unordered_map<std::string, AnimationClip> clips; //动画片段
+	};
+
+	SkinnedData LoadSkinnedMesh(const std::string fileName);
+	VertexMeshData LoadMesh(const std::string fileName);
 	VertexMeshData CreatGrid(float width,float depth, uint32_t col, uint32_t row);
 	VertexMeshData CreatBox(float width, float height,float depth, uint32_t sub);
 	VertexMeshData CreatSphere(float radius, uint32_t row, uint32_t col);

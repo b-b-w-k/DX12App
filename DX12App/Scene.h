@@ -28,9 +28,8 @@ struct DrawStats
     UINT totalObjects   = 0;  // 绘制对象总数
     UINT visibleObjects = 0;  // 视锥体内对象
     UINT culledObjects  = 0;  // 剔除对象
-    UINT drawnObjects   = 0;  // 实际提交绘制
+    UINT drawnSubmeshs  = 0;  // 实际提交绘制
     UINT drawCalls      = 0;  // 提交绘制次数(不包含2D文字)
-    UINT totalSubmeshs  = 0;  // 所有子网格数量
     // 每个渲染层级的绘制对象
     UINT perLayerDrawn[(int)RenderLayer::Count] = {}; 
 };
@@ -38,12 +37,12 @@ struct DrawStats
 //材质层级描述,用于注册多重材质
 struct MaterialLayerDesc
 {
-	std::string diffTex;              // 漫反射纹理名
-	std::string norTex ;              // 法线纹理名
-	XMFLOAT2    uvScale  = { 1, 1 };  // 纹理缩放
-	XMFLOAT2    uvSpeed  = { 0, 0 };  // 速度
-    float       rotation = 0.0f;      // 旋转
-	float       weight   = 1.0f;      // 权重
+	std::string diffTex;                // 漫反射纹理名
+	std::string norTex ;                // 法线纹理名
+	DirectX::XMFLOAT2 uvScale = {1, 1}; // 纹理缩放
+    DirectX::XMFLOAT2 uvSpeed = {0, 0}; // 速度
+    float rotation = 0.0f;              // 旋转
+	float weight   = 1.0f;              // 权重
 };
 
 struct SubmeshDesc
@@ -52,7 +51,7 @@ struct SubmeshDesc
     Material*                mat           = nullptr;
     RenderLayer              layer         = RenderLayer::Opaque;
     D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    XMFLOAT4X4               texTransform  = DxMath::Identity4x4();
+    DirectX::XMFLOAT4X4      texTransform  = DxMath::Identity4x4();
 };
 
 
@@ -83,24 +82,24 @@ public:
 
 
     // 注册单网格几何体（一个子网格）
-    template<class T>
-    MeshGeometry* RegisterGeometry(const std::string& geoName,                          // 几何体名字
-                                   GeoGenerator::TMeshData<T>&& data,                   // 几何体数据
-                                   const std::string& submeshName,                      // 子网格名字
-                                   EVertexLayout layout = EVertexLayout::Standard);     // 顶点布局
-    // 注册多子网格几何体                                                               
-    template<class T>                                                                   
-    MeshGeometry* RegisterGeometry(const std::string& geoName,                          // 几何体名字
-                                   std::vector<std::pair<std::string,                   // pair 打包两个值,方便取出子网格名字
-                                   GeoGenerator::TMeshData<T>>>&& submeshes,            // 子网格表
-                                   EVertexLayout layout = EVertexLayout::Standard);     // 顶点布局
+    template<class T>                                                                    
+    MeshGeometry* RegisterGeometry(const std::string& geoName,                           // 几何体名字
+                                   GeoGenerator::TMeshData<T>&& data,                    // 几何体数据
+                                   const std::string& submeshName,                       // 子网格名字
+                                   EVertexLayout layout = EVertexLayout::Standard);      // 顶点布局
+    // 注册多子网格几何体                                                                
+    template<class T>                                                                    
+    MeshGeometry* RegisterGeometry(const std::string& geoName,                           // 几何体名字
+                                   std::vector<std::pair<std::string,                    // pair 打包两个值,方便取出子网格名字
+                                   GeoGenerator::TMeshData<T>>>&& submeshes,             // 子网格表
+                                   EVertexLayout layout = EVertexLayout::Standard);      // 顶点布局
 
     // 注册材质(多层材质,自动推导出纹理索引)
-	Material* RegisterMaterial(const std::string& name,                                 // 材质名称
-		                       const XMFLOAT4& albedo = { 1,1,1,1 },                    // 漫反射反照率
-		                       const XMFLOAT3& fresnelR0 = { 0.04f,0.04f,0.04f },       // F0
-		                       float roughness = 0.5f,                                  // 粗糙度
-                               const std::vector<MaterialLayerDesc>& layerDescs = {});  // 纹理层
+	Material* RegisterMaterial(const std::string& name,                                   // 材质名称
+		                       const DirectX::XMFLOAT4& albedo = { 1,1,1,1 },             // 漫反射反照率
+		                       const DirectX::XMFLOAT3& fresnelR0 = { 0.04f,0.04f,0.04f },// F0
+		                       float roughness = 0.5f,                                    // 粗糙度
+                               const std::vector<MaterialLayerDesc>& layerDescs = {});    // 纹理层
 
     // 注册骨架(所有模型的骨架保存在一处)
     Skeleton* RegisterSkeleton(const std::string& name, Skeleton&& skeleton);
@@ -161,12 +160,12 @@ public:
     // 脱离节点树
     void Detach(Node* child);                            
     // 设置视锥体(用于剔除),每帧更新
-    void SetFrustum(const XMFLOAT4X4& view, const XMFLOAT4X4& proj)
+    void SetFrustum(const DirectX::XMFLOAT4X4& view, const DirectX::XMFLOAT4X4& proj)
     { 
         m_frustum.BulidFrustumFromViewProj(view, proj);
     }
     // 设置观察位置
-    void SetCameraEye(XMFLOAT3 eye) { m_cameraEye = eye; }
+    void SetCameraEye(DirectX::XMFLOAT3 eye) { m_cameraEye = eye; }
     // 重置绘制信息
     void ResetDrawStats() { m_drawStats = {}; }
 
@@ -201,7 +200,7 @@ public:
     UINT GetSkeletonNum() const { return (UINT)m_skeletons.size(); }
     UINT GetAnimateNum()  const { return (UINT)m_animateClips.size(); }
     UINT GetRenderNum()   const { return (UINT)m_renderNodes.size(); }
-    UINT GetSubmeshNum()  const { return  m_drawStats.totalSubmeshs;}
+    UINT GetSubmeshNum()  const { return  m_totalSubmeshs;}
    
 	// 获取绘制信息
 	const DrawStats& GetDrawStats() { return m_drawStats; }
@@ -275,9 +274,10 @@ private:
     bool m_updateDirty = true;                                    // 线性表更新标识
 
     //Debug 信息
-    XMFLOAT3 m_cameraEye = { 0,0,0 };                             // 摄像机位置(透明物体排序)
+    DirectX::XMFLOAT3 m_cameraEye = { 0,0,0 };                    // 摄像机位置(透明物体排序)
     Frustum m_frustum;                                            // 视锥体(可视化)
     DrawStats m_drawStats;                                        // 绘制信息统计
+    int m_totalSubmeshs =0;                                       // 子网格总数
 
 	// SRV 堆,由全局堆管理,场景只使用
     ID3D12DescriptorHeap* m_srvHeap = nullptr;                    // srv堆指针
@@ -310,6 +310,8 @@ inline MeshGeometry* Scene::RegisterGeometry(const std::string& geoName,
                                              GeoGenerator::TMeshData<T>>>&& submeshes, 
                                              EVertexLayout layout)
 {
+    using namespace DirectX;
+
     //多子网格
 
     // 总顶点和索引

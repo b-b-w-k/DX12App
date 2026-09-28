@@ -66,6 +66,6 @@ struct SkeletonVertex
 	DirectX::XMFLOAT2 uv;
 	DirectX::XMFLOAT3 tangentU;
 	
-	DirectX::XMFLOAT4 boneWeights; //支持4块骨骼影响
+	float     boneWeights[4]; //支持4块骨骼影响
 	uint8_t   boneIndices[4];
 };

@@ -46,8 +46,8 @@ public:
 		m_bones = std::move(bones);
 		m_boneIndices.clear();
 		//重建骨骼索引表
-		for (int i = 0; i < bones.size(); ++i)
-			m_boneIndices[bones[i].name] = i;
+		for (int i = 0; i < m_bones.size(); ++i)
+			m_boneIndices[m_bones[i].name] = i;
 	}
 
 private:

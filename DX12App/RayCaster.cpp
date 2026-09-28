@@ -4,6 +4,8 @@
 #include "CollisionComponent.h"
 #include "RenderComponent.h"
 
+using namespace DirectX;
+
 RayHitInfo RayCaster::RayPick(const Ray& ray) const
 {
     //直接发射射线

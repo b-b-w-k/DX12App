@@ -37,7 +37,7 @@ struct AnimationClip
 	// 获取所有骨骼动画最先开始时间
 	float GetStartTime() const { return boneAnimations.empty() ? 0.0f : boneAnimations.front().GetStartTime(); }
 	// 获取所有骨骼动画最后开始时间
-	float GetEndTime()   const { return boneAnimations.empty() ? 0.0f : boneAnimations.back() .GetStartTime(); }
+	float GetEndTime()   const { return boneAnimations.empty() ? 0.0f : boneAnimations.back() .GetEndTime(); }
 	// 仅插值有动画的骨骼
 	void Interpolate(float t,std::vector<DirectX::XMFLOAT4X4>& outLocal) const;
 	// 插值所有骨骼的动画矩阵(没有动画的用默认矩阵填充)
