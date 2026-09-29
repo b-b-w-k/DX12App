@@ -13,11 +13,12 @@ using namespace DirectX;
 // 将assimp的矩阵转换为DX的矩阵(4x4)
 static XMFLOAT4X4 AiToDXMat4x4(const aiMatrix4x4& mat)
 {
+	// assimp是列主序!!!
 	XMFLOAT4X4 M;
-	M._11 = mat.a1; M._12 = mat.a2; M._13 = mat.a3; M._14 = mat.a4;
-	M._21 = mat.b1; M._22 = mat.b2; M._23 = mat.b3; M._24 = mat.b4;
-	M._31 = mat.c1; M._32 = mat.c2; M._33 = mat.c3; M._34 = mat.c4;
-	M._41 = mat.d1; M._42 = mat.d2; M._43 = mat.d3; M._44 = mat.d4;
+	M._11 = mat.a1; M._12 = mat.b1; M._13 = mat.c1; M._14 = mat.d1;
+	M._21 = mat.a2; M._22 = mat.b2; M._23 = mat.c2; M._24 = mat.d2;
+	M._31 = mat.a3; M._32 = mat.b3; M._33 = mat.c3; M._34 = mat.d3;
+	M._41 = mat.a4; M._42 = mat.b4; M._43 = mat.c4; M._44 = mat.d4;
 	return M;
 }
 
@@ -150,6 +151,42 @@ static aiQuaternion  SLerpQuat(const aiQuatKey* keys, uint32_t num, float t)
 		}
 	}
 	return keys[num - 1].mValue;
+}
+
+// 自动mesh对应的节点
+static aiNode* FindNodeFromMesh(aiNode* root, uint32_t meshIndex)
+{
+	std::vector<aiNode*>stack;
+	stack.push_back(root);
+	while (!stack.empty())
+	{
+		aiNode* n = stack.back();
+		stack.pop_back();
+
+		for (uint32_t i =0;i< n->mNumMeshes;++i)
+		{
+			if (n->mMeshes[i] == meshIndex)
+				return n;
+		}
+
+		for (int i=0;i< n->mNumChildren;++i)
+		{
+			stack.push_back(n->mChildren[i]);
+		}
+	}
+	return nullptr;
+}
+// 计算至根变换矩阵
+static aiMatrix4x4 CalNodeWorldTransform(aiNode* node)
+{
+	aiMatrix4x4 result = node->mTransformation;
+	const aiNode* parent = node->mParent;
+	while (parent)
+	{
+		result = result * parent->mTransformation;
+		parent = parent->mParent;
+	}
+	return result;
 }
 
 GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
@@ -302,10 +339,12 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 			" indexNum" + std::to_string(submeshData.indices.size()) + "\n";
 		OutputDebugStringA(indexStr.c_str());
 
+
 		//记录子网格
 		skinnedData.meshes.push_back({ meshName, std::move(submeshData) });
-		//记录材质索引
-		skinnedData.materialIndices.push_back(mesh->mMaterialIndex);
+		//记录材质名字(用子网格名字先)
+		skinnedData.materialNames.push_back(meshName);
+
 	}
 
 	// ======== 提取动画 ========

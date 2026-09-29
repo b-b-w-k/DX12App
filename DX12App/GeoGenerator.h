@@ -35,7 +35,7 @@ public:
 		Skeleton skeleton;                                            // 骨架
 		std::vector<std::pair<std::string, SkeletonMeshData>> meshes; // 网格
 		std::unordered_map<std::string, AnimationClip> clips;         // 动画片段
-		std::vector<int> materialIndices;                             // 模型材质索引
+		std::vector<std::string> materialNames;                       // 模型材质名
 	};
 
 	SkinnedData LoadSkinnedMesh(const std::string fileName);

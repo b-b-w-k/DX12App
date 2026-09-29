@@ -1177,8 +1177,7 @@ void BoxGameApp::BuildScene()
 	auto box = gen.CreatBox(1, 1, 1, 1);                      // 基本几何体
 	auto mesh1 = gen.LoadMesh("../models/AK-H.fbx");          // 外部模型 
 	auto skinnedData = gen.LoadSkinnedMesh("../models/Start Walking.fbx");
-	auto& matIndex = skinnedData.materialIndices;
-
+	
 	std::string animateName;
 	for (auto& pair : skinnedData.clips)
 	{
@@ -1219,6 +1218,12 @@ void BoxGameApp::BuildScene()
 		"mat_plastic", { 0.8f, 0.8f, 0.85f, 1.0f }, { 0.4f,0.4f,0.4f }, 0.1f);// 塑料材质
 	auto* mirrorMat = m_scene->RegisterMaterial(
 		"mat_mirror", { 1.0f, 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, 0.0f);// 镜面材质
+
+	// *测试材质*(模型有两个材质)
+	auto* orangeColor = m_scene->RegisterMaterial(
+		skinnedData.materialNames[0], {1.0f, 0.647f, 0.0f, 1.0f}, {0.08f,0.08f,0.08f}, 0.8f);// 标准漫反射材质
+	auto* whiteColor = m_scene->RegisterMaterial(
+		skinnedData.materialNames[1], {1,1,1,1}, {0.08f,0.08f,0.08f}, 0.8f);                 // 标准漫反射材质
 
 	// 有贴图
 	auto* brickMat = m_scene->RegisterMaterial(							    
@@ -1301,7 +1306,7 @@ void BoxGameApp::BuildScene()
 		SubmeshDesc d = {};
 		d.submeshName = name;
 		d.layer = RenderLayer::Skinned;
-		d.mat = defaultMat;
+		d.mat = m_scene->GetMaterial(name);
 		desc.push_back(d);
 	}
 
@@ -1310,13 +1315,13 @@ void BoxGameApp::BuildScene()
 	obj_player->SetLocalTransform(
 		{ -3.0f, 0.0f, 7.0f },
 		{ 0, 0, 0 },
-		{ 0.05f,  0.05f,  0.05f });
+		{ 0.04f,  0.04f,  0.04f });
 	obj_player->AddComponent<CollisionComponent>()
 		->SetCollisionType(ECollisionType::Triangle);
 
 	auto* skComp = obj_player->AddComponent<SkeletonComponent>();
 	skComp->m_skeleton = m_scene->GetSkeleton("player_skeleton");
-	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
+	skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 	m_scene->AttachToView(obj_player, skComp);
 
 }
