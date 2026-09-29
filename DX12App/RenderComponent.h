@@ -64,7 +64,7 @@ public:
 
 	
 public:
-	bool neverCull = false;                   // 永远不会剔除(天空盒,调试线)
+	bool neverCull = false;                  // 永远不会剔除(天空盒,调试线)
 	bool isCull    = true;                   // 是否剔除
 	bool isVisible = true;                   // 是否可见(暂时隐藏)
 

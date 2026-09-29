@@ -11,9 +11,9 @@ class SkeletonComponent
 	:public Component
 {
 public:
-	SkeletonComponent* SetSkeleton(Skeleton* skeleton) { m_skeleton = skeleton; return this; }
+
 	//播放
-	SkeletonComponent* Play(AnimationClip* clip, bool isloop = true);
+	void Play(AnimationClip* clip, bool isloop = true);
 	//停止
 	void Stop();
 	//更新
@@ -34,7 +34,7 @@ public:
 	bool  m_isPlaying = false;       // 是否开始播放
 
 private:
-	//缓存矩阵数据,避免每帧重算(mutable在const里可改)
+	//缓存内存,避免每帧重新开辟内存(mutable在const里可改)
 	mutable std::vector<DirectX::XMFLOAT4X4>  m_localCache;
 	mutable std::vector<DirectX::XMFLOAT4X4>  m_globalCache;
 

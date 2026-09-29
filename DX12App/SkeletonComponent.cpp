@@ -1,16 +1,27 @@
 #include "SkeletonComponent.h"
 #include "AnimationClip.h"
 #include "Skeleton.h"
+#include <comdef.h>
 
 using namespace DirectX;
 
-SkeletonComponent* SkeletonComponent::Play(AnimationClip* clip, bool isloop)
+void SkeletonComponent::Play(AnimationClip* clip, bool isloop)
 {
 	m_clip = clip;
 	m_animTimer = 0.0f;
 	m_isPlaying = true;
 	m_isLoop = isloop;
-	return this;
+
+	if (m_clip)
+	{
+		char buf[256];
+		sprintf_s(buf, "Play: %s  start=%.3f end=%.3f dur=%.3f\n",
+			m_clip->name.c_str(),
+			m_clip->GetStartTime(),
+			m_clip->GetEndTime(),
+			m_clip->GetEndTime() - m_clip->GetStartTime());
+		OutputDebugStringA(buf);
+	}
 }
 
 void SkeletonComponent::Stop()
@@ -43,6 +54,7 @@ void SkeletonComponent::Update(float dt)
 			m_isPlaying = false;
 		}
 	}
+	
 }
 
 void SkeletonComponent::CalFinalTransforms(std::vector<DirectX::XMFLOAT4X4>& outMat) const

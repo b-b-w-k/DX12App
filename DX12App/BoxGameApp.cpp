@@ -1177,9 +1177,7 @@ void BoxGameApp::BuildScene()
 	auto box = gen.CreatBox(1, 1, 1, 1);                      // 基本几何体
 	auto mesh1 = gen.LoadMesh("../models/AK-H.fbx");          // 外部模型 
 	auto skinnedData = gen.LoadSkinnedMesh("../models/Start Walking.fbx");
-	auto& player = skinnedData.mesh;
-	auto& animate = skinnedData.clips;
-	auto& skeleton = skinnedData.skeleton;
+	auto& matIndex = skinnedData.materialIndices;
 
 	std::string animateName;
 	for (auto& pair : skinnedData.clips)
@@ -1187,11 +1185,22 @@ void BoxGameApp::BuildScene()
 		const std::string& name = pair.first;
 		animateName = name;
 		AnimationClip& clip = pair.second;
+		//注册动画
 		m_scene->RegisterAnimate(name, std::move(clip));
 	}
-	m_scene->RegisterSkeleton("player_skeleton", std::move(skeleton));
+	//注册骨架
+	m_scene->RegisterSkeleton("player_skeleton", std::move(skinnedData.skeleton));
+
+	//保存子网格名字,后面构造描述
+	std::vector<std::string>submeshNames;
+	submeshNames.reserve(skinnedData.meshes.size());
+	for (auto& mesh : skinnedData.meshes)
+	{
+		submeshNames.push_back(mesh.first);
+	}
 	
-	m_scene->RegisterGeometry<SkeletonVertex>("geo_player",  std::move(player),  "sub_player", EVertexLayout::Skeleton); 
+	m_scene->RegisterGeometry<SkeletonVertex>("geo_player", std::move(skinnedData.meshes), EVertexLayout::Skeleton);
+
 	m_scene->RegisterGeometry<Vertex>("geo_terrain", std::move(terrain), "sub_terrain"); // 对象网格
 	m_scene->RegisterGeometry<Vertex>("geo_mesh1",   std::move(mesh1),   "sub_mesh1");   // 外部模型
 	m_scene->RegisterGeometry<Vertex>("geo_box",     std::move(box),     "sub_box");	 // 基本几何体
@@ -1284,16 +1293,30 @@ void BoxGameApp::BuildScene()
 	obj_Ak->AddComponent<CollisionComponent>()
 		  ->SetCollisionType(ECollisionType::AABB);
 
-	Node* obj_player = m_scene->AddRenderObject("player", "geo_player", "sub_player", defaultMat, RenderLayer::Skinned);
+	//构造子网格描述
+	std::vector<SubmeshDesc> desc;
+	desc.reserve(submeshNames.size());
+	for (auto& name : submeshNames)
+	{
+		SubmeshDesc d = {};
+		d.submeshName = name;
+		d.layer = RenderLayer::Skinned;
+		d.mat = defaultMat;
+		desc.push_back(d);
+	}
+
+
+	Node* obj_player = m_scene->AddRenderObject("player", "geo_player", desc);
 	obj_player->SetLocalTransform(
 		{ -3.0f, 0.0f, 7.0f },
 		{ 0, 0, 0 },
 		{ 0.05f,  0.05f,  0.05f });
 	obj_player->AddComponent<CollisionComponent>()
 		->SetCollisionType(ECollisionType::Triangle);
-	auto* skComp =obj_player->AddComponent<SkeletonComponent>()
-		->SetSkeleton(m_scene->GetSkeleton("player_skeleton"))
-		->Play(m_scene->GetAnimate(animateName.c_str()));
+
+	auto* skComp = obj_player->AddComponent<SkeletonComponent>();
+	skComp->m_skeleton = m_scene->GetSkeleton("player_skeleton");
+	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 	m_scene->AttachToView(obj_player, skComp);
 
 }

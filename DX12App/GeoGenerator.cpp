@@ -51,10 +51,11 @@ static void TraverseBoneLayer(aiNode* root, //根节点
 	{
 		aiNode* node;   //遍历的节点
 		int parentIndex;//父节点索引
+		XMMATRIX accumTransform;//累计父级变换矩阵(给骨骼初始姿态)
 	};
 
 	std::vector<EntryStack> stack;
-	stack.push_back({ root,-1 });//从根节点开始遍历,父索引为-1
+	stack.push_back({ root,-1 , XMMatrixIdentity() });//从根节点开始遍历,父索引为-1
 
 	while (!stack.empty())
 	{
@@ -64,6 +65,10 @@ static void TraverseBoneLayer(aiNode* root, //根节点
 
 		int myIndex = -1;//初始化本节点索引
 
+		//累计父级变换
+		XMFLOAT4X4 localT = AiToDXMat4x4(ele.node->mTransformation);
+		XMMATRIX accumT = XMLoadFloat4x4(&localT) * ele.accumTransform;
+		
 		//判断当前节点是否为骨骼
 		if (aiBone* aiBone = FindBone(scene, ele.node->mName.C_Str()))
 		{
@@ -71,7 +76,7 @@ static void TraverseBoneLayer(aiNode* root, //根节点
 			Bone bone;
 			bone.name = aiBone->mName.C_Str();
 			bone.InvBindPose = AiToDXMat4x4(aiBone->mOffsetMatrix);
-			bone.LocalBindPose = AiToDXMat4x4(ele.node->mTransformation);//默认姿态
+			XMStoreFloat4x4(&bone.LocalBindPose, accumT); //默认姿态
 			bone.parentIndex = ele.parentIndex;
 
 			//先记录索引
@@ -89,7 +94,8 @@ static void TraverseBoneLayer(aiNode* root, //根节点
 				{
 				ele.node->mChildren[i], //压入子节点
 				//如果根节点不是骨骼,就将当前节点的父索引设为最近父骨骼索引
-				myIndex >= 0 ? myIndex : ele.parentIndex 
+				myIndex >= 0 ? myIndex : ele.parentIndex,
+				myIndex >= 0 ? XMMatrixIdentity(): accumT
 				});
 		}
 
@@ -166,8 +172,6 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 	auto debugStr = fileName + " import success!\n";
 	OutputDebugStringA(debugStr.c_str());
 
-	SkeletonMeshData& meshData = skinnedData.mesh;
-
 	// ======= 骨架提取 =======
 	std::vector<Bone> bones; //骨架
 	//遍历节点数获取所有骨骼
@@ -180,29 +184,38 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 	OutputDebugStringA(boneStr.c_str());
 
 
-	//初始化包围盒
-	meshData.bound_min = { FLT_MAX, FLT_MAX, FLT_MAX };
-	meshData.bound_max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+	//======= 构建子网格 =======
 
-	// ======= 填充顶点数据 =======
-	for (UINT meshIndex = 0; meshIndex < scene->mNumMeshes; meshIndex++)
+	for (uint32_t m = 0; m < scene->mNumMeshes; m++)
 	{
-		aiMesh* mesh = scene->mMeshes[meshIndex];
-		//顶点偏移
-		uint32_t vertexOffset = static_cast<int32_t>(meshData.vertices.size());
+		aiMesh* mesh = scene->mMeshes[m];
+
+		std::string meshName;
+		//定义子网格名字
+		if (mesh->mName.length > 0)
+			meshName = mesh->mName.C_Str();
+		else
+			meshName = "sub_" + std::to_string(m);
+
+		SkeletonMeshData submeshData;
+
+		//初始化包围盒
+		submeshData.bound_min = { FLT_MAX, FLT_MAX, FLT_MAX };
+		submeshData.bound_max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
 		//顶点
 		for (UINT v = 0; v < mesh->mNumVertices; v++)
 		{
-
+			//位置,法线,uv,切线
 			aiVector3D pos = mesh->mVertices[v];
 			aiVector3D nor = mesh->mNormals ? mesh->mNormals[v] : aiVector3D(0, 1, 0);
 			aiVector3D uv = (mesh->mTextureCoords[0] ? mesh->mTextureCoords[0][v] : aiVector3D(0, 0, 0));
 			aiVector3D tan = (mesh->mTangents ? mesh->mTangents[v] : aiVector3D(1, 0, 0));
 
 			SkeletonVertex vert = {};
-			vert.pos      = { pos.x, pos.y, pos.z };
-			vert.normal   = { nor.x, nor.y, nor.z };
-			vert.uv       = { uv.x, uv.y };
+			vert.pos = { pos.x, pos.y, pos.z };
+			vert.normal = { nor.x, nor.y, nor.z };
+			vert.uv = { uv.x, uv.y };
 			vert.tangentU = { tan.x, tan.y, tan.z };
 			//先置空,后面填骨骼权重
 			for (int k = 0; k < 4; ++k)
@@ -210,17 +223,16 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 				vert.boneWeights[k] = 0;
 				vert.boneIndices[k] = 0;
 			}
-			meshData.vertices.push_back(vert);
+			submeshData.vertices.push_back(vert);
 
-			meshData.bound_min.x = std::min(meshData.bound_min.x, pos.x);
-			meshData.bound_min.y = std::min(meshData.bound_min.y, pos.y);
-			meshData.bound_min.z = std::min(meshData.bound_min.z, pos.z);
-			meshData.bound_max.x = std::max(meshData.bound_max.x, pos.x);
-			meshData.bound_max.y = std::max(meshData.bound_max.y, pos.y);
-			meshData.bound_max.z = std::max(meshData.bound_max.z, pos.z);
+			submeshData.bound_min.x = std::min(submeshData.bound_min.x, pos.x);
+			submeshData.bound_min.y = std::min(submeshData.bound_min.y, pos.y);
+			submeshData.bound_min.z = std::min(submeshData.bound_min.z, pos.z);
+			submeshData.bound_max.x = std::max(submeshData.bound_max.x, pos.x);
+			submeshData.bound_max.y = std::max(submeshData.bound_max.y, pos.y);
+			submeshData.bound_max.z = std::max(submeshData.bound_max.z, pos.z);
 		}
-
-		// ======= 填写骨骼权重,索引 =======
+		// 填写骨骼权重,索引
 		for (uint32_t b = 0; b < mesh->mNumBones; ++b)
 		{
 			//不是骨骼就继续
@@ -228,14 +240,13 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 			int boneIndex = skinnedData.skeleton.GetBoneIndex(bone->mName.C_Str());
 			if (boneIndex < 0)continue;
 			//先取骨骼权重
-			for (uint32_t i =0;i< bone->mNumWeights;++i)
+			for (uint32_t i = 0; i < bone->mNumWeights; ++i)
 			{
 				const aiVertexWeight& weight = bone->mWeights[i];
 				// 获取骨骼影响的顶点索引
-				uint32_t vIndex = vertexOffset + weight.mVertexId;
-				if (vIndex >= meshData.vertices.size())continue;
+				if (weight.mVertexId >= submeshData.vertices.size())continue;
 				// 获取骨骼影响的顶点
-				SkeletonVertex& v = meshData.vertices[vIndex];
+				SkeletonVertex& v = submeshData.vertices[weight.mVertexId];
 
 				//插入权重
 				for (int k = 0; k < 4; ++k)
@@ -245,7 +256,7 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 					{
 						//权重和索引
 						v.boneWeights[k] = weight.mWeight;
-						assert(boneIndex <= 256);
+						assert(boneIndex < 256);
 						v.boneIndices[k] = (uint8_t)boneIndex;
 						break;
 					}
@@ -253,41 +264,49 @@ GeoGenerator::SkinnedData GeoGenerator::LoadSkinnedMesh(std::string fileName)
 
 			}
 		}
+
+		// 权重归一化
+		for (auto& v : submeshData.vertices)
+		{
+			float sum = v.boneWeights[0] + v.boneWeights[1] +
+				v.boneWeights[2] + v.boneWeights[3];
+			//有骨骼权重
+			if (sum > 1e-8)
+			{
+				float a = 1.0f / sum;
+				for (int i = 0; i < 4; ++i)
+					v.boneWeights[i] *= a;
+			}
+			else//没有就将第一个骨骼权重设为1
+			{
+				v.boneWeights[0] = 1.0f;
+				v.boneIndices[0] = 0;
+			}
+		}
+
 		//索引
 		for (UINT f = 0; f < mesh->mNumFaces; f++)
 		{
 			aiFace face = mesh->mFaces[f];
 			for (UINT i = 0; i < face.mNumIndices; i++)
 			{
-				meshData.indices.push_back(vertexOffset + face.mIndices[i]);
+				submeshData.indices.push_back(face.mIndices[i]);
 			}
 		}
-	}
 
-	// 权重归一化
-	for (auto& v : meshData.vertices)
-	{
-		float sum = v.boneWeights[0] + v.boneWeights[1] + 
-					v.boneWeights[2] + v.boneWeights[3];
-		//有骨骼权重
-		if (sum > 1e-8)
-		{
-			float a = 1.0f / sum;
-			for (int i = 0; i < 4; ++i)
-				v.boneWeights[i] *= a;
-		}
-		else//没有就将第一个骨骼权重设为1
-		{
-			v.boneWeights[0] = 1.0f;
-			v.boneIndices[0] = 0;
-		}
-	}
+		//输出调试信息
+		std::string vertexStr = "mesh_"+std::to_string(m) + 
+			" vertexNum" + std::to_string(submeshData.vertices.size()) + "\n";
+		OutputDebugStringA(vertexStr.c_str());
+		std::string indexStr = "mesh_" + std::to_string(m) +
+			" indexNum" + std::to_string(submeshData.indices.size()) + "\n";
+		OutputDebugStringA(indexStr.c_str());
 
-	//输出调试信息
-	std::string vertexStr = "vertexNum" + std::to_string(meshData.vertices.size()) + "\n";
-	OutputDebugStringA(vertexStr.c_str());
-	std::string indexStr = "indexNum" + std::to_string(meshData.indices.size()) + "\n";
-	OutputDebugStringA(indexStr.c_str());
+		//记录子网格
+		skinnedData.meshes.push_back({ meshName, std::move(submeshData) });
+		//记录材质索引
+		skinnedData.materialIndices.push_back(mesh->mMaterialIndex);
+	}
 
 	// ======== 提取动画 ========
 

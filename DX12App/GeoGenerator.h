@@ -29,11 +29,13 @@ public:
 	// 定义高度采样器回调函数(根据采样坐标返回高度值)
 	using HeightSampler = std::function<float(float u, float v)>;
 
+	//蒙皮模型数据
 	struct SkinnedData
 	{
-		SkeletonMeshData mesh; // 网格
-		Skeleton skeleton;     // 骨架
-		std::unordered_map<std::string, AnimationClip> clips; //动画片段
+		Skeleton skeleton;                                            // 骨架
+		std::vector<std::pair<std::string, SkeletonMeshData>> meshes; // 网格
+		std::unordered_map<std::string, AnimationClip> clips;         // 动画片段
+		std::vector<int> materialIndices;                             // 模型材质索引
 	};
 
 	SkinnedData LoadSkinnedMesh(const std::string fileName);
