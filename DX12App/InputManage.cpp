@@ -16,6 +16,9 @@ bool InputManage::InputInit()
 	RegisteredButtom(EAction::MOVE_LEFT, 'A');
 	RegisteredButtom(EAction::MOVE_RIGHT,'D');
 
+	RegisteredButtom(EAction::RUNING,   VK_SHIFT);  //shift键
+	RegisteredButtom(EAction::JUMP,     VK_SPACE);  //shift键
+
 	RegisteredButtom(EAction::ROT_X_CW, VK_LBUTTON);//左键
 	RegisteredButtom(EAction::ROT_X_CCW,VK_LBUTTON);//左键
 

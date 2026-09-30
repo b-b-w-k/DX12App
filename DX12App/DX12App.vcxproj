@@ -175,6 +175,7 @@
     <ClCompile Include="BoxGameApp.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="CollisionComponent.cpp" />
+    <ClCompile Include="ControlComponent.cpp" />
     <ClCompile Include="D2DTextRenderer.cpp" />
     <ClCompile Include="D3DTools.cpp" />
     <ClCompile Include="DDSTextureLoader.cpp" />
@@ -200,6 +201,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CollisionComponent.h" />
     <ClInclude Include="Component.h" />
+    <ClInclude Include="ControlComponent.h" />
     <ClInclude Include="D2DTextRenderer.h" />
     <ClInclude Include="D3DTools.h" />
     <ClInclude Include="DDSTextureLoader.h" />

@@ -9,10 +9,13 @@ enum class EAction
 	:uint32_t
 {
 	//移动
-	MOVE_FRONT,//前
-	MOVE_BACK,//后
-	MOVE_LEFT,//左
-	MOVE_RIGHT,//右
+	MOVE_FRONT, //前
+	MOVE_BACK,  //后
+	MOVE_LEFT,  //左
+	MOVE_RIGHT, //右
+
+	RUNING,    //奔跑
+	JUMP,      //跳跃
 	
 	//旋转
 	ROT_X_CW,//顺

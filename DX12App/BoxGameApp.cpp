@@ -1219,11 +1219,11 @@ void BoxGameApp::BuildScene()
 	auto* mirrorMat = m_scene->RegisterMaterial(
 		"mat_mirror", { 1.0f, 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, 0.0f);// 镜面材质
 
-	// *测试材质*(模型有两个材质)
+	// *测试*(模型有两个材质)
 	auto* orangeColor = m_scene->RegisterMaterial(
 		skinnedData.materialNames[0], {1.0f, 0.647f, 0.0f, 1.0f}, {0.08f,0.08f,0.08f}, 0.8f);// 标准漫反射材质
 	auto* whiteColor = m_scene->RegisterMaterial(
-		skinnedData.materialNames[1], {1,1,1,1}, {0.08f,0.08f,0.08f}, 0.8f);                 // 标准漫反射材质
+		skinnedData.materialNames[1], {1,1,1,1}, {0.08f,0.08f,0.08f}, 0.8f);             // 标准漫反射材质
 
 	// 有贴图
 	auto* brickMat = m_scene->RegisterMaterial(							    
@@ -1315,7 +1315,7 @@ void BoxGameApp::BuildScene()
 	obj_player->SetLocalTransform(
 		{ -3.0f, 0.0f, 7.0f },
 		{ 0, 0, 0 },
-		{ 0.04f,  0.04f,  0.04f });
+		{ 0.03f,  0.03f,  0.03f });
 	obj_player->AddComponent<CollisionComponent>()
 		->SetCollisionType(ECollisionType::Triangle);
 

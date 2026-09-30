@@ -147,7 +147,10 @@
     <ClCompile Include="AnimationClip.cpp">
       <Filter>渲染数据</Filter>
     </ClCompile>
-    <ClCompile Include="SkeletonComponent.cpp" />
+    <ClCompile Include="ControlComponent.cpp" />
+    <ClCompile Include="SkeletonComponent.cpp">
+      <Filter>组件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="BoxGameApp.h">
@@ -243,6 +246,11 @@
     <ClInclude Include="AnimationClip.h">
       <Filter>渲染数据</Filter>
     </ClInclude>
-    <ClInclude Include="SkeletonComponent.h" />
+    <ClInclude Include="ControlComponent.h">
+      <Filter>组件</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletonComponent.h">
+      <Filter>组件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
