@@ -13,11 +13,14 @@
 #include "RenderComponent.h"
 #include "CollisionComponent.h"
 #include "SkeletonComponent.h"
+#include "ControlComponent.h"
 #include "AnimationClip.h"
 #include "Skeleton.h"
+#include "RayCaster.h"
 
 
 
+using namespace DirectX;
 
 const int numFrameResources = 3;
 
@@ -49,6 +52,9 @@ bool BoxGameApp::InitApp()
 	m_inputManage = std::make_unique<InputManage>();
 	m_inputManage->InputInit();
 
+	
+
+
 	// ===== 摄像机初始化 =====
 	m_camControl = std::make_unique<FlyCameraController>();//默认自由摄像机
 	m_camera.UpdateViewMatrix();//显示更新一次
@@ -56,7 +62,17 @@ bool BoxGameApp::InitApp()
 	
 	BuildGlobalDescriptorHeaps();//构建堆
 	// ===== 场景对象初始化 =====
-	BuildScene();         // 构建：几何体/纹理/材质/对象/SRV堆
+	m_scene = std::make_unique<Scene>(
+		m_d3dDevice.Get(),
+		m_commandList.Get(),
+		m_cbvSrvDescSize);
+	// ===== 射线检测器初始化 =====
+	m_rayCaster = std::make_unique<RayCaster>(m_scene.get());
+
+	// 构建：几何体/纹理/材质/对象/SRV堆
+	BuildScene();         
+
+	
 
 	BuildReflection();           //建立反射资源
 	// ===== 管线资源初始化 =====
@@ -548,11 +564,30 @@ void BoxGameApp::UpdateController(float dt)
 
 	//相机切换
 	if (m_inputManage->IsActionEnd(EAction::CAMERA_FPS))
-		m_camControl = std::make_unique<FPSCameraController>();
+	{
+		// 第一人称
+		if(Node* player =m_scene->GetNode("player"))
+			m_camControl = std::make_unique<FPSCameraController>(player);
+		else
+			m_camControl = std::make_unique<FlyCameraController>();
+		
+	}
 	else if (m_inputManage->IsActionEnd(EAction::CAMERA_TPS))
-		m_camControl = std::make_unique<TPSCameraController>();
+	{
+		// 第三人称
+		Node* player = m_scene->GetNode("player");
+		if (player||m_rayCaster.get())
+			m_camControl = std::make_unique<TPSCameraController>(player, m_rayCaster.get());
+		else
+			m_camControl = std::make_unique<FlyCameraController>();
+	}
 	else if (m_inputManage->IsActionEnd(EAction::CAMERA_FLY))
+	{
+		// 自由相机
 		m_camControl = std::make_unique<FlyCameraController>();
+	
+	}
+		
 
 	//更新摄像机
 	if (m_camControl)m_camControl->UpdateCamControl(dt, m_inputManage.get(), &m_camera);
@@ -1120,10 +1155,6 @@ void BoxGameApp::BuildPSO()
 
 void BoxGameApp::BuildScene()
 {
-	m_scene = std::make_unique<Scene>(
-		m_d3dDevice.Get(), 
-		m_commandList.Get(), 
-		m_cbvSrvDescSize);
 
 	// ======== 构建纹理 ========
 	m_scene->RegisterTexture("brick_diff",    L"../textures/brick_diff.dds");             // 砖_diff
@@ -1263,8 +1294,7 @@ void BoxGameApp::BuildScene()
 	Node* obj_terrain = m_scene->AddRenderObject("terrain", "geo_terrain", "sub_terrain", grassMat, RenderLayer::Terrain);
 	obj_terrain->SetLocalTransform({ -50, -3, 3.0f });
 	//添加碰撞
-	obj_terrain->AddComponent<CollisionComponent>()
-		       ->SetCollisionType(ECollisionType::Triangle);
+	m_scene->AddCollisionFromNode(obj_terrain, ECollisionType::Triangle);
 
 	//水面
 	m_scene->AddRenderObject("water", "geo_water", "sub_water", waterMat, RenderLayer::Wave)
@@ -1285,8 +1315,8 @@ void BoxGameApp::BuildScene()
 			obj_box->SetLocalTransform(
 					{ float(i * 2), 0.5f + float(j * 2), 3.0f },
 					{ 0.0f,XM_PI * 0.25f + i * 0.2f,j * 0.2f });
-			obj_box->AddComponent<CollisionComponent>()
-				   ->SetCollisionType(ECollisionType::OBB);
+			m_scene->AddCollisionFromNode(obj_box, ECollisionType::OBB);
+
 		}
 	}
 	//外部模型对象
@@ -1295,8 +1325,7 @@ void BoxGameApp::BuildScene()
 			{ 0.0f, 1.0f, 0.0f },
 			{ XM_PI * 0.5f, 0, 0 },
 			{ 0.005f,  0.005f,  0.005f });
-	obj_Ak->AddComponent<CollisionComponent>()
-		  ->SetCollisionType(ECollisionType::AABB);
+		m_scene->AddCollisionFromNode(obj_Ak, ECollisionType::OBB);
 
 	//构造子网格描述
 	std::vector<SubmeshDesc> desc;
@@ -1315,15 +1344,12 @@ void BoxGameApp::BuildScene()
 	obj_player->SetLocalTransform(
 		{ -3.0f, 0.0f, 7.0f },
 		{ 0, 0, 0 },
-		{ 0.03f,  0.03f,  0.03f });
-	obj_player->AddComponent<CollisionComponent>()
-		->SetCollisionType(ECollisionType::Triangle);
+		{ 0.02f,  0.02f,  0.02f });
+	m_scene->AddCollisionFromNode(obj_player, ECollisionType::Triangle);
+	auto* skComp =m_scene->AddSkeletonFromNode(obj_player, "player_skeleton");
+	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 
-	auto* skComp = obj_player->AddComponent<SkeletonComponent>();
-	skComp->m_skeleton = m_scene->GetSkeleton("player_skeleton");
-	skComp->Play(m_scene->GetAnimate(animateName.c_str()));
-	m_scene->AttachToView(obj_player, skComp);
-
+	//obj_player->AddComponent<ControlComponent>(&m_camera,m_rayCaster.get(),m_inputManage.get());
 }
 
 void BoxGameApp::BuildReflection()

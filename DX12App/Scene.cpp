@@ -296,6 +296,22 @@ Node* Scene::AddRenderObject(const std::string& name,
 
 }
 
+CollisionComponent* Scene::AddCollisionFromNode(Node* node, ECollisionType type)
+{
+	auto comp = node->AddComponent<CollisionComponent>();
+	comp->SetCollisionType(type);
+	AttachToView(node, comp);
+	return comp;
+}
+
+SkeletonComponent* Scene::AddSkeletonFromNode(Node* node, const std::string& skeletonName)
+{
+	auto* comp = node->AddComponent<SkeletonComponent>();
+	comp->m_skeleton =GetSkeleton(skeletonName);
+	AttachToView(node, comp);
+	return comp;
+}
+
 
 void Scene::SetParent(Node* child, Node* parent)
 {

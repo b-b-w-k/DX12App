@@ -21,6 +21,7 @@ class SkeletonComponent;
 class AnimationClip;
 class Skeleton;
 
+extern enum class ECollisionType :uint32_t;
 
 //绘制统计信息
 struct DrawStats
@@ -146,6 +147,11 @@ public:
 		                  const std::string& geoName,
 		                  const std::vector<SubmeshDesc>& submeshDesc,
 		                  Node* parent = nullptr);
+
+    // 给已有节点添加碰撞组件
+	CollisionComponent* AddCollisionFromNode(Node* node, ECollisionType type);
+	// 给已有节点添加蒙皮组件
+	SkeletonComponent*  AddSkeletonFromNode(Node* node, const std::string& skeletonName);
 
     // ====== 组件对象视图分派重载 ====== 
 

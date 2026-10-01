@@ -1,41 +1,47 @@
 #include "ICameraController.h"
 #include "InputManage.h"
 #include "Camera.h"
+#include "Node.h"
+#include "RayCaster.h"
 
 
 
 using namespace DirectX;
 void FPSCameraController::UpdateCamControl(float dt, InputManage* pInputManage, Camera* pCamera)
 {
-	//===========移动只能在xz平面===========
-	//删去y轴移动,由绑定目标(人物位置)传入...
+	//===========跟随人物(头部)移动===========
+	
 	
 	//y轴移归零
-	XMFLOAT3 look = pCamera->GetLook3f();
-	XMVECTOR lookv = XMLoadFloat3(&look);
-	lookv = XMVector3Normalize(XMVectorSetY(lookv, 0));
+	//XMFLOAT3 look = pCamera->GetLook3f();
+	//XMVECTOR lookv = XMLoadFloat3(&look);
+	//lookv = XMVector3Normalize(XMVectorSetY(lookv, 0));
 
-	XMFLOAT3 right = pCamera->GetRight3f();
-	XMVECTOR rightv = XMLoadFloat3(&right);
-	rightv = XMVector3Normalize(XMVectorSetY(rightv, 0));
+	//XMFLOAT3 right = pCamera->GetRight3f();
+	//XMVECTOR rightv = XMLoadFloat3(&right);
+	//rightv = XMVector3Normalize(XMVectorSetY(rightv, 0));
 
 	//速度
-	float speed = moveSpeed * dt;
+	//float speed = moveSpeed * dt;
 	//位置
-	XMFLOAT3 pos = pCamera->GetPosition3f();
-	XMVECTOR posv = XMLoadFloat3(&pos);
-	if (pInputManage->IsActionContinue(EAction::MOVE_FRONT))posv += speed * lookv;  //前移动
-	if (pInputManage->IsActionContinue(EAction::MOVE_BACK)) posv -= speed * lookv;  //后移动
-	if (pInputManage->IsActionContinue(EAction::MOVE_RIGHT))posv += speed * rightv; //右移动
-	if (pInputManage->IsActionContinue(EAction::MOVE_LEFT)) posv -= speed * rightv; //左移动
+	//XMFLOAT3 pos = pCamera->GetPosition3f();
+	//XMVECTOR posv = XMLoadFloat3(&pos);
+	//if (pInputManage->IsActionContinue(EAction::MOVE_FRONT))posv += speed * lookv;  //前移动
+	//if (pInputManage->IsActionContinue(EAction::MOVE_BACK)) posv -= speed * lookv;  //后移动
+	//if (pInputManage->IsActionContinue(EAction::MOVE_RIGHT))posv += speed * rightv; //右移动
+	//if (pInputManage->IsActionContinue(EAction::MOVE_LEFT)) posv -= speed * rightv; //左移动
 
 	//改变摄像机位置
-	XMFLOAT3 newPos;
-	XMStoreFloat3(&newPos, posv);
-	pCamera->SetPosition(newPos.x, 2.0f, newPos.z);
+	XMFLOAT3 newPos = { 0,0,0 };
+	if (owner)
+	newPos = { owner->worldTransform._41, 
+			   owner->worldTransform._42+ camHeight,
+			   owner->worldTransform._43 };
+
+	pCamera->SetPosition(newPos.x, newPos.y, newPos.z);
 	
 
-	//视角移动,无需鼠标按下
+	//视角移动,无需鼠标按下(视角还是由摄像机控制器控制)
 
 	POINT offset = pInputManage->GetMouseOffset();
 	float dx = XMConvertToRadians(rotSpeed * static_cast<float>(offset.x));
@@ -96,14 +102,32 @@ void TPSCameraController::UpdateCamControl(float dt, InputManage* pInputManage, 
 		radius = D3DTools::Clamp(radius, 3.0f, 15.0f);//3-15
 	}
 
-	//计算位置
-	float x = radius * sinf(phi) * cosf(theta);
-	float z = radius * sinf(phi) * sinf(theta);
-	float y = radius * cosf(phi);
+	//获取目标位置(人物位置)
+	if (owner)
+	{
+		targetPos = { owner->worldTransform._41,
+					 owner->worldTransform._42 + camHeight,//加上人物高度偏移
+					 owner->worldTransform._43 };
+	}
+
+	// 先计算方向(目标点->摄像机)
+	XMFLOAT3 dir = { sinf(phi) * cosf(theta),
+					 cosf(phi),
+					 sinf(phi) * sinf(theta)};
+
+	// 进行防穿检测,如果检测到碰撞,则将半径设置为碰撞点距离
+	float finalRadius = radius;
+	if (owner && rayCaster)
+	{
+		finalRadius = rayCaster->CheckCameraDist(targetPos, dir, radius, owner);
+	}
+	//获取目标位置(人物位置)
+	XMFLOAT3 newPos = { targetPos.x + dir.x * finalRadius,
+						targetPos.y + dir.y * finalRadius,
+						targetPos.z + dir.z * finalRadius };
 	
 	//改变摄像机位置和前向量
-	XMFLOAT3 newPos = { x,y,z };
 	pCamera->LookAt(newPos, targetPos, XMFLOAT3(0, 1, 0));
 
-
+	
 }

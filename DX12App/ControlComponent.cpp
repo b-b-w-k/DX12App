@@ -87,8 +87,10 @@ void ControlComponent::UpdateInput()
 	if (dx == 0.0f && dz == 0.0f) return;
 
 	//摄像机方向
-	XMVECTOR forward = XMLoadFloat3(&GetScreenForward());
-	XMVECTOR right = XMLoadFloat3(&GetScreenRight());
+	auto look = GetScreenForward();
+	XMVECTOR forward = XMLoadFloat3(&look);
+	auto r = GetScreenRight();
+	XMVECTOR right = XMLoadFloat3(&r);
 
 	//移动方向
 	XMVECTOR dir = forward * dz + right * dx;
@@ -140,9 +142,9 @@ void ControlComponent::UpdateMoveHor(float dt)
 	XMStoreFloat3(&vel, v);
 
 	// 获取起始位置
-	XMFLOAT3 start = { owner->worldTransform._41,
-					   owner->worldTransform._42 ,
-					   owner->worldTransform._43 };
+	XMFLOAT3 start = { owner->localTransform._41,
+					   owner->localTransform._42 ,
+					   owner->localTransform._43 };
 	// 目标位置
 	XMFLOAT3 end = { start.x + vel.x * dt,
 					 start.y,

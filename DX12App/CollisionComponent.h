@@ -3,9 +3,9 @@
 #include <d3d12.h>
 #include "Component.h"
 
-
 // 碰撞类型枚举(该对象支持那种碰撞)
 enum class ECollisionType
+	:uint32_t
 {
 	None     = 0,
 	AABB     = 1,
@@ -16,7 +16,7 @@ enum class ECollisionType
 
 //碰撞层级掩码
 enum class ELayerMask
-	:UINT
+	:uint32_t
 {
 	None    = 0,
 	Static  = 1 << 0,

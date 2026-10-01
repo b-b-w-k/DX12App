@@ -1,5 +1,6 @@
 #pragma once
 #include "Component.h"
+#include "DirectXMath.h"
 
 class Camera;
 class RayCaster;
@@ -28,15 +29,16 @@ class ControlComponent
 	:public Component
 {
 public:
+	ControlComponent(Camera* cam, RayCaster* caster, InputManage* in)
+		:camera(cam), rayCaster(caster), input(in) {}
 	void Update(float dt) override;
 
 public:
 	// 控制器参数
-	float camHeight  = 0; // 摄像机里模型原点的y轴偏移
-	float feetOffset = 0; //  模型脚底到原点的y轴偏移
-	float moveSpeed  = 0;
-	float runSpeed   = 0;
-	float rotSpeed   = 0; // 镜头旋转速度
+	float feetOffset = 0;     // 模型脚底到原点的y轴偏移
+	float moveSpeed  = 3.0f;
+	float runSpeed   = 6.0f;
+	float rotSpeed   = 10.0f; // 镜头旋转速度
 
 	//外部指针
 	Camera*      camera    = nullptr; // 摄像机

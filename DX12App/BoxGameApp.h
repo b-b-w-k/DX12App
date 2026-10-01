@@ -18,6 +18,7 @@ class Scene;
 class SceneObject;
 class DebugLineRenderer;
 class ReflectionRTT;
+class RayCaster;
 
 
 using  namespace Microsoft::WRL;
@@ -103,7 +104,8 @@ private:
 	UINT m_dsvDescSize    = 0;
 
 
-    // ===== 场景,摄像机 =====
+    // ===== 场景,摄像机,射线检测 =====
+	std::unique_ptr<RayCaster> m_rayCaster = nullptr;                   // 射线检测
     std::unique_ptr<Scene> m_scene = nullptr;                           // 场景(管理场景对象)
     Camera m_camera;                                                    // 摄像机        
 

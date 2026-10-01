@@ -4,16 +4,18 @@
 
 class InputManage;
 class Camera;
+class Node;
+class RayCaster;
 
-using namespace DirectX;
 
 //摄像机控制器接口
 struct ICameraController
 {
 	float rotSpeed;
 	float moveSpeed;
-
+	Node* owner = nullptr;
 	ICameraController() :rotSpeed(0.15f), moveSpeed(10.0f) {};
+	ICameraController(Node* player) :rotSpeed(0.15f), moveSpeed(10.0f) , owner(player){};
 	virtual ~ICameraController() = default;
 	virtual void UpdateCamControl(float dt, InputManage* pInputManage, Camera* pCamera) = 0;
 };
@@ -22,11 +24,13 @@ struct ICameraController
 struct FPSCameraController
 	:public ICameraController
 {
+	float camHeight = 3; // 摄像机里模型原点的y轴偏移
+
 	//俯仰角限制(0.1f-89.9f)
-	float pitchMax = XM_PI * 0.25f - 0.1f;//往下
-	float pitchMin = 0.1f - XM_PI * 0.5f; //往上
+	float pitchMax = DirectX::XM_PI * 0.25f - 0.1f;//往下
+	float pitchMin = 0.1f - DirectX::XM_PI * 0.5f; //往上
 	float m_pitch = 0.0f;
-	FPSCameraController() :ICameraController() {};
+	FPSCameraController(Node* player) :ICameraController(player) {};
 	void UpdateCamControl(float dt, InputManage* pInputManage, Camera* pCamera) override;
 
 };
@@ -43,13 +47,16 @@ struct FlyCameraController
 struct TPSCameraController
 	:public ICameraController
 {
-	XMFLOAT3 targetPos = { 0,0,0 };
+	float camHeight = 2;                     // 摄像机里模型原点的y轴偏移
+	RayCaster* rayCaster = nullptr;          // 用于视角钳制的射线检测接口
+	DirectX::XMFLOAT3 targetPos = { 0,0,0 }; // 人物所在位置
 
-	float theta = 1.5f * XM_PI;
-	float phi = XM_PIDIV4;
+	// 三轴旋转量
+	float theta = 1.5f * DirectX::XM_PI;
+	float phi = DirectX::XM_PIDIV4;
 	float radius = 5.0f;
 
-	TPSCameraController() :ICameraController()
+	TPSCameraController(Node* player, RayCaster* caster) :ICameraController(player), rayCaster(caster)
 	{
 		moveSpeed = 0.005f;
 	}
