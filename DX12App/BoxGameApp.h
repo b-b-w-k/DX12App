@@ -85,6 +85,7 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputLayout;                // 标准输入布局描述
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_colorInputLayout;           // 纯色输入布局描述
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_skinInputLayout;            // 蒙皮输入布局描述
+    std::vector<D3D12_INPUT_ELEMENT_DESC> m_terrainInputLayout;         // 地形输入布局描述
     ComPtr<ID3D12RootSignature> m_rootSignature = nullptr;              // 根签名
     std::unordered_map<std::string, ComPtr<ID3DBlob>> m_shaders;        // 着色器
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> m_PSOs;// 渲染管线状态对象

@@ -847,7 +847,7 @@ GeoGenerator::VertexMeshData GeoGenerator::CreatTerrain(float width, float depth
 				const float hL = (j > 0)       ? heights[i * col + (j - 1)] * heightScale : h;//左
 				const float hR = (j < col - 1) ? heights[i * col + (j + 1)] * heightScale : h;//右
 				const float hT = (i > 0)       ? heights[(i - 1) * col + j] * heightScale : h;//上
-				const float hB = (i < row - 1) ? heights[(i + 1) * col + j] * heightScale : h;//上
+				const float hB = (i < row - 1) ? heights[(i + 1) * col + j] * heightScale : h;//下
 
 				// 邻域的实际世界距离（dx/dz 就是网格步长）
 				const float dhdx = (hR - hL) / (2.0f * offsetX);

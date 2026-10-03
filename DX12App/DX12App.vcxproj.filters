@@ -53,6 +53,12 @@
     <Filter Include="组件">
       <UniqueIdentifier>{d4fcacce-d5b6-476c-9211-d0575edb3cc4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="地形高度场">
+      <UniqueIdentifier>{e7f8ff2b-e0c2-4911-a1c7-4671f6223466}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="四叉树">
+      <UniqueIdentifier>{db0728bb-4085-42bd-b9e2-cfee60f73779}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\shaders\color.hlsl">
@@ -150,6 +156,12 @@
     <ClCompile Include="ControlComponent.cpp" />
     <ClCompile Include="SkeletonComponent.cpp">
       <Filter>组件</Filter>
+    </ClCompile>
+    <ClCompile Include="TerrainHeightField.cpp">
+      <Filter>地形高度场</Filter>
+    </ClCompile>
+    <ClCompile Include="QuadTree.cpp">
+      <Filter>四叉树</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -251,6 +263,12 @@
     </ClInclude>
     <ClInclude Include="SkeletonComponent.h">
       <Filter>组件</Filter>
+    </ClInclude>
+    <ClInclude Include="TerrainHeightField.h">
+      <Filter>地形高度场</Filter>
+    </ClInclude>
+    <ClInclude Include="QuadTree.h">
+      <Filter>四叉树</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

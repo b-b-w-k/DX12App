@@ -189,11 +189,13 @@
     <ClCompile Include="InputManage.cpp" />
     <ClCompile Include="MeshGeometry.cpp" />
     <ClCompile Include="Node.cpp" />
+    <ClCompile Include="QuadTree.cpp" />
     <ClCompile Include="RayCaster.cpp" />
     <ClCompile Include="ReflectionRTT.cpp" />
     <ClCompile Include="RenderComponent.cpp" />
     <ClCompile Include="Scene.cpp" />
     <ClCompile Include="SkeletonComponent.cpp" />
+    <ClCompile Include="TerrainHeightField.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AnimationClip.h" />
@@ -219,6 +221,7 @@
     <ClInclude Include="MeshGeometry.h" />
     <ClInclude Include="Node.h" />
     <ClInclude Include="PCH.h" />
+    <ClInclude Include="QuadTree.h" />
     <ClInclude Include="RayCaster.h" />
     <ClInclude Include="ReflectionRTT.h" />
     <ClInclude Include="RenderComponent.h" />
@@ -227,6 +230,7 @@
     <ClInclude Include="Scene.h" />
     <ClInclude Include="Skeleton.h" />
     <ClInclude Include="SkeletonComponent.h" />
+    <ClInclude Include="TerrainHeightField.h" />
     <ClInclude Include="UpLoadBuffer.h" />
     <ClInclude Include="Vertex.h" />
   </ItemGroup>

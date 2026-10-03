@@ -58,6 +58,7 @@ struct ColorVertex
 	DirectX::XMFLOAT4 color;
 };
 
+// 骨骼顶点布局
 struct SkeletonVertex
 {
 
@@ -68,4 +69,12 @@ struct SkeletonVertex
 	
 	float     boneWeights[4]; //支持4块骨骼影响
 	uint8_t   boneIndices[4];
+};
+
+// 地形顶点布局
+
+struct TerrainVertex
+{
+	// 只有xz坐标
+	DirectX::XMFLOAT2 posXZ;
 };

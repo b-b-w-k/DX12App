@@ -851,7 +851,7 @@ void BoxGameApp::BuildRootSignature()
 	refTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
 		1, 0, 2);//反射纹理t0,space2
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
 
 	//常量缓冲区视图形式
 	slotRootParameter[0].InitAsConstantBufferView(0);//objCB  b0
@@ -861,11 +861,12 @@ void BoxGameApp::BuildRootSignature()
 	slotRootParameter[4].InitAsDescriptorTable(1,&texTable1, D3D12_SHADER_VISIBILITY_PIXEL);//tex t1 sapce0
 	slotRootParameter[5].InitAsDescriptorTable(1,&refTable, D3D12_SHADER_VISIBILITY_PIXEL);//ref t0 sapce2
 	slotRootParameter[6].InitAsShaderResourceView(0, 3);//bone t0 space3
-	
+	slotRootParameter[7].InitAsConstantBufferView(2); //terrainCB b2
+
 	auto staticSamplers = GetStaticSamplers();//静态采样器
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(
-		7,                    //根参数数量
+		8,                    //根参数数量
 		slotRootParameter,    //根参数
 		staticSamplers.size(),//静态采样器数量
 		staticSamplers.data(),//静态采样器
@@ -938,6 +939,9 @@ void BoxGameApp::BuildShadersAndInputLayout()
 	//动态水面
 	m_shaders["wavePS"] = D3DTools::CompileShader(L"..\\shaders\\wave.hlsl", nullptr, "PS", "ps_5_1");
 	//地形
+	m_shaders["terrainVS"] = D3DTools::CompileShader(L"..\\shaders\\terrain.hlsl", nullptr, "VS", "vs_5_1");
+	m_shaders["terrainHS"] = D3DTools::CompileShader(L"..\\shaders\\terrain.hlsl", nullptr, "HS", "hs_5_1");
+	m_shaders["terrainDS"] = D3DTools::CompileShader(L"..\\shaders\\terrain.hlsl", nullptr, "DS", "ds_5_1");
 	m_shaders["terrainPS"] = D3DTools::CompileShader(L"..\\shaders\\terrain.hlsl", nullptr, "PS", "ps_5_1");
 	
 	//天空盒着色器
@@ -973,6 +977,11 @@ void BoxGameApp::BuildShadersAndInputLayout()
 		{"TANGENT",     0,DXGI_FORMAT_R32G32B32_FLOAT,   0,32,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 		{"BONEWEIGHTS", 0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,44,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 		{"BONEINDICES", 0,DXGI_FORMAT_R8G8B8A8_UINT,     0,60,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+	};
+	//地形输入布局描述
+	m_terrainInputLayout =
+	{
+		{"POSITION",0,DXGI_FORMAT_R32G32_FLOAT,0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 	};
 
 }
@@ -1025,11 +1034,33 @@ void BoxGameApp::BuildPSO()
 
 	//================地形================
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc = opaquePsoDesc;
+	terrainPsoDesc.InputLayout = 
+	{ 
+		m_terrainInputLayout.data(),
+		(UINT)m_terrainInputLayout.size() 
+	};
+	terrainPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(m_shaders["terrainVS"]->GetBufferPointer()),
+		m_shaders["terrainVS"]->GetBufferSize()
+	};
+	terrainPsoDesc.HS =
+	{
+		reinterpret_cast<BYTE*>(m_shaders["terrainHS"]->GetBufferPointer()),
+		m_shaders["terrainHS"]->GetBufferSize()
+	};
+	terrainPsoDesc.DS =
+	{
+		reinterpret_cast<BYTE*>(m_shaders["terrainDS"]->GetBufferPointer()),
+		m_shaders["terrainDS"]->GetBufferSize()
+	};
 	terrainPsoDesc.PS =
 	{
 		reinterpret_cast<BYTE*>(m_shaders["terrainPS"]->GetBufferPointer()),
 		m_shaders["terrainPS"]->GetBufferSize()
 	};
+	//patch
+	terrainPsoDesc.PrimitiveTopologyType =D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
 	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
 		&terrainPsoDesc,
 		IID_PPV_ARGS(&m_PSOs["Terrain"])));
