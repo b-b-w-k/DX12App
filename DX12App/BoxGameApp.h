@@ -45,6 +45,7 @@ private:
 
 	void UpdateController(float dt);   // 更新摄像机控制器
 	void UpdateMainPassCB(float dt);   // 更新主Pass常量缓冲区
+    void UpdateTerrainCB (float dt);   // 更新地形PatchCB
 
     void BuildShadersAndInputLayout(); // 着色器编译及输入布局描述
     void BuildRootSignature();         // 构建根签名
@@ -117,11 +118,12 @@ private:
 
 
 
-    // ===== 过程常量缓冲区更新数据 =====
-	PassConstants m_mainPassCB;                                         // 主过程常量缓冲区
-	PassConstants m_reflectPassCB;                                      // 反射过程常量缓冲区
+    // ===== 缓冲区更新数据 =====
+	PassConstants    m_mainPassCB;                                       // 主过程常量缓冲区
+	PassConstants    m_reflectPassCB;                                    // 反射过程常量缓冲区
+    TerrainConstants m_terrainCB;                                        // 地形常量缓冲区
 
-	bool m_isShow = false;                                              // 是否显示调试信息
+	bool m_isShow = false;                                               // 是否显示调试信息
 
 
 };

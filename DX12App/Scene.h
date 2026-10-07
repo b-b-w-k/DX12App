@@ -10,6 +10,8 @@
 #include "MeshGeometry.h"// 几何体数据
 #include "D3DTools.h"    // DX工具方法
 
+#include "QuadTree.h" //使用TerrainPatch
+
 class FrameResource;
 class RenderComponent;
 class CollisionComponent;
@@ -20,6 +22,7 @@ class CollisionComponent;
 class SkeletonComponent;
 class AnimationClip;
 class Skeleton;
+class TerrainHeightField;
 
 extern enum class ECollisionType :uint32_t;
 
@@ -115,6 +118,14 @@ public:
 		               UINT startSlot,                // 空闲槽位开始
 		               UINT cbvSrvUavDescSize);       // SRV描述符大小
 
+    // ====== 构建地形网格 ======
+    void BuildTerrain(Material* mat,                 // 地形材质
+                      DirectX::XMFLOAT3 center,      // 地形中心点(偏移)
+                      float totalSize,               // 地形边长
+                      float heightScale,             // 高度缩放
+                      uint32_t patchesPerSide,       // 四叉树节点最大分段
+                      int maxDepth);                 // 四叉树最大深度
+
     // ====== 添加场景对象 ======
 
     //添加节点(空节点,用于挂载)
@@ -191,6 +202,8 @@ public:
 	const std::vector<Node*>& GetCollisionNodes() const { return m_collisionNodes; }
     // 获取所有蒙皮对象(有动画)
 	const std::vector<Node*>& GetSkeletonNodes() const { return m_skeletonNodes; }
+    // 获取所有地形可见Patch
+    const std::vector<TerrainPatch>& GetTerrainPatches()const { return m_visiblePatches; }
 
 	// 获取单个资源数据
 	Texture*      GetTexture (const std::string& name);   // 纹理
@@ -200,33 +213,31 @@ public:
     AnimationClip*GetAnimate (const std::string& name);   // 动画
 
     // 获取数量
-	UINT GetMaterialNum() const { return (UINT)m_materials.size(); }
-	UINT GetTextureNum()  const { return (UINT)m_textures.size(); }
-    UINT GetGeometryNum() const { return (UINT)m_geometries.size(); }
-    UINT GetSkeletonNum() const { return (UINT)m_skeletons.size(); }
-    UINT GetAnimateNum()  const { return (UINT)m_animateClips.size(); }
-    UINT GetRenderNum()   const { return (UINT)m_renderNodes.size(); }
-    UINT GetSubmeshNum()  const { return  m_totalSubmeshs;}
+	UINT GetMaterialNum()     const { return (UINT)m_materials.size(); }
+	UINT GetTextureNum()      const { return (UINT)m_textures.size(); }
+    UINT GetGeometryNum()     const { return (UINT)m_geometries.size(); }
+    UINT GetSkeletonNum()     const { return (UINT)m_skeletons.size(); }
+    UINT GetAnimateNum()      const { return (UINT)m_animateClips.size(); }
+    UINT GetRenderNum()       const { return (UINT)m_renderNodes.size(); }
+    UINT GetSubmeshNum()      const { return  m_totalSubmeshs;}
+    UINT GetTerrainPatchNum() const { return  m_terrainPatchCount; }
    
 	// 获取绘制信息
 	const DrawStats& GetDrawStats() { return m_drawStats; }
     // 获取视锥体(debug可视化)
     const Frustum& GetFrustum()const { return m_frustum; }
-
-    // 获得地形信息
-    const float GetTerrainHeightScale()const { return m_terrainHeightScale; }
-    // 双线性采样器,地形高度采样用(仅限R8,单通道8位)
-    float GetSamplerBilinear(float u, float v)const;
-
 	// 获取用掉的槽位数量
 	UINT GetSRVCount() const { return m_srvCount; }
     // 获取天空盒纹理索引
     UINT GetSkyBoxIndex() const { return m_skyBoxSrvIndex; }
+    // 获取纹理索引
+    UINT GetTextureSrvIndex(const std::string& name) const;
     
-
+    int GetNodeObjCBIndex(const std::string& nodeName, const std::string& submeshName = "") const;
 
 private:
     
+    void InitInstanceBuffer(ID3D12Device* device);
     // 索引池分配和回收
     int AllocObjCBIndex();
     void RecycleObjCBIndex(int index);
@@ -240,6 +251,7 @@ private:
 	void UpdateObjCB(FrameResource* frame);  // 更新节点对象的对象常量缓冲区
 	void UpdateMatCB(FrameResource* frame);  // 更新节点对象的材质常量缓冲区
 	void UpdateBoneCB(FrameResource* frame); // 更新节点对象的骨骼常量缓冲区
+    void UpdateTerrainLOD();                 // 更新地形LOD
    
 private:
 
@@ -256,12 +268,17 @@ private:
     std::unordered_map<std::string, std::unique_ptr<Skeleton>>      m_skeletons;    // 所有骨架数据
     std::unordered_map<std::string, std::unique_ptr<AnimationClip>> m_animateClips; // 所有骨架数据
 
-	//地形高度图(地形高度数据)
-	std::vector<float> m_terrainHeightData;     // 地形高度图数据(R8)
-	UINT  m_terrainHeightW = 0;                 // 地形高度图宽
-	UINT  m_terrainHeightH = 0;                 // 地形高度图高
-	float m_terrainHeightScale = 0.0f;          // 地形高度图缩放
-	bool m_isHeightTex = false;                 // 是否有高度纹理
+	//地形数据
+    std::unique_ptr<TerrainHeightField> m_terrHeightField;        // 地形高度场(用于采样地形高度图)
+    std::vector<TerrainPatch> m_visiblePatches;                   // 可见patch数据
+    uint32_t m_terrainPatchCount = 0;                             // 可见Patch数量
+    Node* m_terrainNode = nullptr;                                // 地形节点
+
+	// 四叉树参数
+    std::unique_ptr<QuadTree> m_quadTree;                         // 四叉树,用于剔除不可见Patch
+	float m_tessMin = 1.0f;	                                      // 最远时细分因子
+	float m_tessMax = 64.0f;	                                  // 最近时细分因子
+	float m_maxDist = 200.0f;	                                  // 最大细分距离(超过这个距离用tessMin)
 
     // 场景对象(逻辑层,组织对象)
     std::vector<std::unique_ptr<Node>> m_nodes;                   // 所有节点(拥有者)
@@ -279,11 +296,17 @@ private:
     std::vector<Node*> m_nodeList;                                // 节点更新线性表
     bool m_updateDirty = true;                                    // 线性表更新标识
 
-    //Debug 信息
+    // Debug 信息
     DirectX::XMFLOAT3 m_cameraEye = { 0,0,0 };                    // 摄像机位置(透明物体排序)
     Frustum m_frustum;                                            // 视锥体(可视化)
     DrawStats m_drawStats;                                        // 绘制信息统计
     int m_totalSubmeshs =0;                                       // 子网格总数
+
+    // 全局实例缓冲区
+    static const uint32_t m_instBufferSize = 4 * 1024 * 1024;     // 实例缓冲区大小
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_instBuffer;          // 实例缓冲区
+    uint8_t* m_instMapped = nullptr;                              // 
+    uint32_t m_instOffset = 0;                                    // 每帧写入偏移
 
 	// SRV 堆,由全局堆管理,场景只使用
     ID3D12DescriptorHeap* m_srvHeap = nullptr;                    // srv堆指针

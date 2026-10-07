@@ -653,6 +653,15 @@ void BoxGameApp::UpdateMainPassCB(float dt)
 
 }
 
+void BoxGameApp::UpdateTerrainCB(float dt)
+{
+	m_terrainCB.gTerrainSize = { 500.0f, 500.0f };
+	m_terrainCB.gTerrainTexSize = { 256.0f, 256.0f };   // 高度图分辨率
+	m_terrainCB.gTerrainScale = 50.0f;
+
+	m_curFrameResource->terrainBuffer->CopyData(0, m_terrainCB);
+}
+
 void BoxGameApp::GameUpdate()
 {
 	float dt=m_timer.DetalTime();
@@ -682,6 +691,7 @@ void BoxGameApp::GameUpdate()
 
 	//更新过程常量缓冲区
 	UpdateMainPassCB(dt);
+	UpdateTerrainCB(dt);
 	
 	//输入管理更新
 	m_inputManage->EndUpdate();
@@ -728,26 +738,30 @@ void BoxGameApp::GameRender()
 	//输出装配阶段
 	bbv = GetCurrentBackBufferView();
 	dsv = GetDepthStencilView();
-	m_commandList->OMSetRenderTargets(1,&bbv,true,&dsv);
-
-	//======着色器参数设置====
+	m_commandList->OMSetRenderTargets(1,&bbv,true,&dsv);	
 	
+	// 设置描述符堆
 	ID3D12DescriptorHeap* heaps[] = { m_globalSrvHeap.Get()};
 	m_commandList->SetDescriptorHeaps(_countof(heaps), heaps);
 	
 	//设置根签名
 	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
+	// ====== 设置根参数 ======
+
 	//设置过程常量缓冲区资源
 	auto passCB = m_curFrameResource->passCBuffer->Resource();
 	m_commandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
-	
+
+	// 设置地形常量缓冲区
+	auto* terrainBuffer = m_curFrameResource->terrainBuffer->Resource();
+	m_commandList->SetGraphicsRootConstantBufferView(2, terrainBuffer->GetGPUVirtualAddress());
+
 	//设置材质缓冲区资源
 	auto matBuffer = m_curFrameResource->matBuffer->Resource();
-	m_commandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
+	m_commandList->SetGraphicsRootShaderResourceView(4, matBuffer->GetGPUVirtualAddress());
 	
-	//设置纹理资源
-	//天空盒纹理
+	//设置天空盒纹理
 	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDesc(
 		m_globalSrvHeap->GetGPUDescriptorHandleForHeapStart());
 	//偏移到天空盒的描述符句柄处
@@ -756,12 +770,23 @@ void BoxGameApp::GameRender()
 
 	//2D纹理根描述符从堆首开始
 	m_commandList->SetGraphicsRootDescriptorTable(
-		4, m_globalSrvHeap->GetGPUDescriptorHandleForHeapStart());
+		7, m_globalSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+	//地形高度纹理
+	UINT heightIndex = m_scene->GetTextureSrvIndex("terrainHeight");
+	if (heightIndex != UINT_MAX)
+	{
+		CD3DX12_GPU_DESCRIPTOR_HANDLE heightDesc(
+			m_globalSrvHeap->GetGPUDescriptorHandleForHeapStart(),
+			heightIndex, m_cbvSrvDescSize);
+		m_commandList->SetGraphicsRootDescriptorTable(8, heightDesc);
+	}
 
 	// 骨骼变换矩阵
 	auto* boneBuffer = m_curFrameResource->boneBuffer->Resource();
 	m_commandList->SetGraphicsRootShaderResourceView(6, boneBuffer->GetGPUVirtualAddress());
 
+	
 	//绘制渲染项 相同pso统一渲染
 	
 	//绘制反射纹理
@@ -837,36 +862,49 @@ void BoxGameApp::GameRender()
 
 void BoxGameApp::BuildRootSignature()
 {
-	CD3DX12_DESCRIPTOR_RANGE texTable0;//描述符表
-	texTable0.Init(
+	//天空盒纹理t0,space0
+	CD3DX12_DESCRIPTOR_RANGE skyTable;//描述符表
+	skyTable.Init(
 		D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 
-		1, 0, 0);//天空盒t0,space0
+		1, 0, 0);
 
-	CD3DX12_DESCRIPTOR_RANGE texTable1;//描述符表
-	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		m_scene->GetTextureNum(), 1, 0);//其他纹理t1
-
-	
+	//反射纹理  t0,space2
 	CD3DX12_DESCRIPTOR_RANGE refTable;
 	refTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		1, 0, 2);//反射纹理t0,space2
+		1, 0, 2);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
+	//其他纹理(法线,漫反射)t1,space0
+	CD3DX12_DESCRIPTOR_RANGE texTable;//描述符表
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		m_scene->GetTextureNum(), 1, 0);
 
-	//常量缓冲区视图形式
-	slotRootParameter[0].InitAsConstantBufferView(0);//objCB  b0
-	slotRootParameter[1].InitAsConstantBufferView(1);//passCB b1
-	slotRootParameter[2].InitAsShaderResourceView(0,1);//matB//作为着色器资源视图 t0 sapce1
-	slotRootParameter[3].InitAsDescriptorTable(1,&texTable0, D3D12_SHADER_VISIBILITY_PIXEL);//skyBox t0 sapce0
-	slotRootParameter[4].InitAsDescriptorTable(1,&texTable1, D3D12_SHADER_VISIBILITY_PIXEL);//tex t1 sapce0
-	slotRootParameter[5].InitAsDescriptorTable(1,&refTable, D3D12_SHADER_VISIBILITY_PIXEL);//ref t0 sapce2
-	slotRootParameter[6].InitAsShaderResourceView(0, 3);//bone t0 space3
-	slotRootParameter[7].InitAsConstantBufferView(2); //terrainCB b2
+	//高度纹理t1,space1
+	CD3DX12_DESCRIPTOR_RANGE heightTable;
+	heightTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		1, 1, 1);
+
+	// 填写根参数
+	CD3DX12_ROOT_PARAMETER slotRootParameter[9];
+
+	// 常量缓冲区根参数
+	slotRootParameter[0].InitAsConstantBufferView(0); // objCB     b0
+	slotRootParameter[1].InitAsConstantBufferView(1); // passCB    b1
+	slotRootParameter[2].InitAsConstantBufferView(2); // terrainCB b2
+
+	// t0寄存器更参数
+	slotRootParameter[3].InitAsDescriptorTable(1, &skyTable, D3D12_SHADER_VISIBILITY_PIXEL); // skyBox t0 sapce0
+	slotRootParameter[4].InitAsShaderResourceView(0, 1);                                     // matB   t0 sapce1
+	slotRootParameter[5].InitAsDescriptorTable(1, &refTable, D3D12_SHADER_VISIBILITY_PIXEL); // ref    t0 sapce2
+	slotRootParameter[6].InitAsShaderResourceView(0, 3);                                     // bone   t0 space3
+	
+	// t1寄存器根参数
+	slotRootParameter[7].InitAsDescriptorTable(1,&texTable, D3D12_SHADER_VISIBILITY_PIXEL);     // tex    t1 sapce0
+	slotRootParameter[8].InitAsDescriptorTable(1, &heightTable, D3D12_SHADER_VISIBILITY_DOMAIN);// height t1 space1
 
 	auto staticSamplers = GetStaticSamplers();//静态采样器
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(
-		8,                    //根参数数量
+		9,                    //根参数数量
 		slotRootParameter,    //根参数
 		staticSamplers.size(),//静态采样器数量
 		staticSamplers.data(),//静态采样器
@@ -898,17 +936,13 @@ void BoxGameApp::BuildRootSignature()
 
 void BoxGameApp::BuildFrameResource()
 {
-	// 支持12个角色*每128根骨骼
-	const uint32_t maxBones = 12 * 128;
-
 	for (int i = 0; i < numFrameResources; i++)
 	{
 		m_frameResources.push_back(std::make_unique<FrameResource>(
 			m_d3dDevice.Get(),
 			8,//过程常量+平面反射常量+Cube反射CB
-			m_scene->GetSubmeshNum(), //对象CB
-			m_scene->GetMaterialNum(),//材质缓冲区
-			maxBones)); // 骨骼缓冲区
+			m_scene->GetSubmeshNum(),   // 对象CB
+			m_scene->GetMaterialNum()));// 材质缓冲区
 	}
 }
 
@@ -981,7 +1015,15 @@ void BoxGameApp::BuildShadersAndInputLayout()
 	//地形输入布局描述
 	m_terrainInputLayout =
 	{
+		// slot0 ,每个顶点
 		{"POSITION",0,DXGI_FORMAT_R32G32_FLOAT,0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+
+		// slot1 ,每个patch实例,4个角点+1个细分因子
+		{"PATCH_C",   0,DXGI_FORMAT_R32G32_FLOAT,1, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   1,DXGI_FORMAT_R32G32_FLOAT,1, 8, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   2,DXGI_FORMAT_R32G32_FLOAT,1, 16,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   3,DXGI_FORMAT_R32G32_FLOAT,1, 24,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_TESS",0,DXGI_FORMAT_R32_FLOAT,   1, 32,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
 	};
 
 }
@@ -1221,18 +1263,9 @@ void BoxGameApp::BuildScene()
 		m_cbvSrvDescSize);
 	m_srvSlotCount += m_scene->GetSRVCount();
 
-	//高度采样器
-	auto heightSampler = [this](float u, float v)->float
-		{
-			return m_scene->GetSamplerBilinear(u, v);
-		};
-
-	
-
 	// ======== 构建网格 ======== 
 	GeoGenerator gen;
-	auto terrain = gen.CreatTerrain(500, 500, 200, 200,
-		heightSampler, m_scene->GetTerrainHeightScale());     // 高度地形
+
 	//auto planeMirror = gen.CreatGrid(4, 6, 4, 6);           // 平面镜
 	auto water = gen.CreatGrid(500, 500, 50, 50);             // 水面
 	auto sphere = gen.CreatSphere(0.5f, 20, 20);              // 天空盒						           
@@ -1262,7 +1295,6 @@ void BoxGameApp::BuildScene()
 	
 	m_scene->RegisterGeometry<SkeletonVertex>("geo_player", std::move(skinnedData.meshes), EVertexLayout::Skeleton);
 
-	m_scene->RegisterGeometry<Vertex>("geo_terrain", std::move(terrain), "sub_terrain"); // 对象网格
 	m_scene->RegisterGeometry<Vertex>("geo_mesh1",   std::move(mesh1),   "sub_mesh1");   // 外部模型
 	m_scene->RegisterGeometry<Vertex>("geo_box",     std::move(box),     "sub_box");	 // 基本几何体
 	m_scene->RegisterGeometry<Vertex>("geo_sphere",  std::move(sphere),  "sub_sphere");	 // 天空盒
@@ -1322,10 +1354,7 @@ void BoxGameApp::BuildScene()
 	// ======== 构建场景对象 ======== 
 
 	//地形
-	Node* obj_terrain = m_scene->AddRenderObject("terrain", "geo_terrain", "sub_terrain", grassMat, RenderLayer::Terrain);
-	obj_terrain->SetLocalTransform({ -50, -3, 3.0f });
-	//添加碰撞
-	m_scene->AddCollisionFromNode(obj_terrain, ECollisionType::Triangle);
+	m_scene->BuildTerrain(grassMat, { -50, -3, 3.0f }, 500, 50, 8, 8);
 
 	//水面
 	m_scene->AddRenderObject("water", "geo_water", "sub_water", waterMat, RenderLayer::Wave)

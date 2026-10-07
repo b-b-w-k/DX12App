@@ -779,132 +779,23 @@ GeoGenerator::ColorMeshData GeoGenerator::CreateFrustum(float nz, float fz,
 	return meshData;
 }
 
-GeoGenerator::VertexMeshData GeoGenerator::CreatTerrain(float width, float depth, 
-														uint32_t col, uint32_t row, 
-														const HeightSampler& heightSampler, 
-														float heightScale, float uvScale)
+GeoGenerator::PatchData GeoGenerator::CreateTerrain(float half)
 {
-	VertexMeshData meshData;
+	PatchData patchData;
 
-	const uint32_t vertexCount = col * row;
-	const uint32_t faceCount = (col - 1) * (row - 1) * 2;
+	// 只要一个 patch 的 4 个控制点
+	patchData.vertices = {
+		{ { 0.0f, 0.0f } },
+		{ { 1.0f, 0.0f } },
+		{ { 1.0f, 1.0f } },
+		{ { 0.0f, 1.0f } },
+	};
+	patchData.indices = { 0, 1, 2, 3 };
 
-	const float halfWidth = width * 0.5f;
-	const float halfDepth = depth * 0.5f;
+	patchData.bound_min = { -half, -100.0f, -half };
+	patchData.bound_max = { half,  100.0f,  half };
 
-	//位置坐标步长
-	const float offsetX = width / (col - 1);//col对应列数(x方向多少列)
-	const float offsetZ = depth / (row - 1);
-
-	//UV坐标步长
-	const float offsetU = 1.0f / (col - 1);
-	const float offsetV = 1.0f / (row - 1);
-
-	// 一次性采样高度图,存表
-	std::vector<float> heights(col * row);
-
-	meshData.vertices.resize(vertexCount);
-
-	//创建顶点
-	for (uint32_t i = 0; i < row; ++i) //外层深度
-	{
-		const float v = i * offsetV;//采样高度V
-		const float z = -halfDepth + i * offsetZ;//世界z
-
-		for (uint32_t j = 0; j < col; ++j) //内层宽度
-		{
-			const float u = j * offsetU;//采样高度U
-			const float x = -halfWidth + j * offsetX;//世界x
-
-			//采样高度图
-			float h = heightSampler ? heightSampler(u, v) : 0.0f;
-			heights[i * col + j] = h;//存表
-			float y = h * heightScale;
-
-			Vertex& vertex = meshData.vertices[i * col + j];
-			vertex.pos = XMFLOAT3(x, y, z);
-			vertex.uv  = XMFLOAT2(u * uvScale, v * uvScale);
-			//先填充,稍后计算
-			vertex.normal   = XMFLOAT3(0, 1, 0);       
-			vertex.tangentU = XMFLOAT3(1, 0, 0);       
-		}
-	}
-	//中心差分计算法线,切线
-	if (heightSampler)
-	{
-		for (uint32_t i = 0; i < row ; ++i) //外层深度
-		{
-			const float v = i * offsetV;//采样高度V
-
-			for (uint32_t j = 0; j < col ; ++j) //内层宽度
-			{
-				const float u = j * offsetU;//采样高度U
-
-				//当前点高度
-				const float h = heights[i * col + j] * heightScale;
-
-				// 取邻域，越界用自身（相当于单边差分 → 0）
-				const float hL = (j > 0)       ? heights[i * col + (j - 1)] * heightScale : h;//左
-				const float hR = (j < col - 1) ? heights[i * col + (j + 1)] * heightScale : h;//右
-				const float hT = (i > 0)       ? heights[(i - 1) * col + j] * heightScale : h;//上
-				const float hB = (i < row - 1) ? heights[(i + 1) * col + j] * heightScale : h;//下
-
-				// 邻域的实际世界距离（dx/dz 就是网格步长）
-				const float dhdx = (hR - hL) / (2.0f * offsetX);
-				const float dhdz = (hB - hT) / (2.0f * offsetZ);
-
-
-				//求法线 n=normalize(-dh/dx, 1, -dh/dz)
-				XMVECTOR n = XMVectorSet(-dhdx, 1.0f, -dhdz, 0.0f);
-				n = XMVector3Normalize(n);
-
-				//切线(X方向) tangentU=normalize(dx, dh, 0) 
-				XMVECTOR t = XMVectorSet(1.0f, dhdx, 0.0f, 0.0f);
-				t = XMVector3Normalize(t);
-
-				Vertex& vertex = meshData.vertices[i * col + j];
-				DirectX::XMStoreFloat3(&vertex.normal, n);
-				DirectX::XMStoreFloat3(&vertex.tangentU, t);
-			}
-		}
-	}
-
-	//索引计算
-	meshData.indices.resize(faceCount * 3);
-	uint32_t k = 0;
-	for (uint32_t i = 0; i < row-1; ++i)
-	{
-		for (uint32_t j = 0; j < col-1; ++j)
-		{
-			// 两个三角形组成一个 quad
-			meshData.indices[k] = i * col + j;
-			meshData.indices[k + 1] = (i + 1) * col + j;
-			meshData.indices[k + 2] = i * col + j + 1;
-
-			meshData.indices[k + 3] = (i + 1) * col + j;
-			meshData.indices[k + 4] = (i + 1) * col + j + 1;
-			meshData.indices[k + 5] = i * col + j + 1;
-			k += 6;
-		}
-	}
-
-	//包围盒计算
-	XMFLOAT3 mn = { FLT_MAX, FLT_MAX, FLT_MAX };
-	XMFLOAT3 mx = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
-
-	for (const auto& vert : meshData.vertices)
-	{
-		mn.x = std::min(mn.x, vert.pos.x);
-		mn.y = std::min(mn.y, vert.pos.y);
-		mn.z = std::min(mn.z, vert.pos.z);
-		mx.x = std::max(mx.x, vert.pos.x);
-		mx.y = std::max(mx.y, vert.pos.y);
-		mx.z = std::max(mx.z, vert.pos.z);
-	}
-	meshData.bound_min = mn;
-	meshData.bound_max = mx;
-
-	return meshData;
+	return patchData;
 }
 
 void GeoGenerator::Subdivide(VertexMeshData& meshData)

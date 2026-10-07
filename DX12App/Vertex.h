@@ -7,6 +7,7 @@ enum class EVertexLayout
 	Standard,
 	Color,
 	Skeleton,
+	Terrain,
 };
 
 // 标准顶点布局
@@ -75,6 +76,8 @@ struct SkeletonVertex
 
 struct TerrainVertex
 {
-	// 只有xz坐标
-	DirectX::XMFLOAT2 posXZ;
+	// 只需要uv坐标去采样高度图
+	// 其他数据通过高度图计算
+	DirectX::XMFLOAT2 uv;
+	// 剩余实例化缓冲区提供
 };

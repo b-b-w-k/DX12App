@@ -116,6 +116,17 @@ bool GameApp::InitD3D()
 	//创建工厂
 	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&m_dxgiFactory)));
 
+#if defined(_DEBUG)
+	{
+		Microsoft::WRL::ComPtr<ID3D12Debug> debug;
+		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+		{
+			debug->EnableDebugLayer();
+			OutputDebugStringA("[DX12] Debug Layer enabled\n");
+		}
+	}
+#endif
+
 	//创建显卡设备
 	ThrowIfFailed(D3D12CreateDevice(
 		nullptr,

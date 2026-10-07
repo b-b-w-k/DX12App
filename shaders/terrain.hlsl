@@ -11,23 +11,32 @@
 // 地形常量缓冲区
 cbuffer TerrainCB : register(b2)
 {
-    float2 gTerrainCenter;
     float2 gTerrainSize;
     float2 gTerrainTexSize;
-    float2 gTerrainTexScale;
     float  gTerrainScale;
-    float  gTerrainMaxDist;
-    float  gTerrainMaxTess;
-    float  gTerrainMinTess;
+    float  terrainPad[3];
 
 }
 
 Texture2D gHeightMap : register(t1,space1); //高度图纹理
 
 // 地形的顶点输入,用于patch细分
-struct PatchVertex
+struct VertexIn
 {
-    float2 PosXZ : POSITION;
+    float2 uv   : POSITION; 
+    float2 c0   : PATCH_C0;   // 左上
+    float2 c1   : PATCH_C1;   // 右上 
+    float2 c2   : PATCH_C2;   // 右下 
+    float2 c3   : PATCH_C3;   // 左下 
+    float  tess : PATCH_TESS; // 细分因子
+};
+struct VertexOut
+{
+    float2 corner0 : TEXCOORD0;
+    float2 corner1 : TEXCOORD1;
+    float2 corner2 : TEXCOORD2;
+    float2 corner3 : TEXCOORD3;
+    float  tess    : TEXCOORD4;
 };
 
 // ===== 曲面细分着色器结构体 =====
@@ -38,7 +47,7 @@ struct HSConstOut
     float InsideTess[2] : SV_InsideTessFactor; // 内部细分因子
 };
 
-// 域着色器输出
+// 域着色器输出(相当于原顶点着色器的输出)
 struct DSOut
 {
     float4 PosH     : SV_POSITION;
@@ -50,54 +59,49 @@ struct DSOut
 
 
 // 辅助函数,计算地形高度
-float SampleHeight(float2 worldXZ)
+float SampleHeight(float2 localXZ)
 {
-    // (worldXZ - gTerrainCenter) / gTerrainSize取值(-0.5,0.5)
-    float uv = (worldXZ - gTerrainCenter) / gTerrainSize + 0.5f;
+    float2 uv = localXZ / gTerrainSize + 0.5f;
     uv = saturate(uv);
-    return gHeightMap.Sample(gSamplerLinearClamp, uv).r * gTerrainScale;
+    return gHeightMap.SampleLevel(gSamplerLinearClamp, uv,0).r * gTerrainScale;
 
 }
 
 // 辅助函数,计算地形法线
-float3 SampleNormal(float2 worldXZ)
+float3 SampleNormal(float2 localXZ)
 {
     float dx = gTerrainSize.x / gTerrainTexSize.x;
     float dz = gTerrainSize.y / gTerrainTexSize.y;
     
-    float hL = SampleHeight(worldXZ - float2(dx, 0));
-    float hR = SampleHeight(worldXZ + float2(dx, 0));
-    float hT = SampleHeight(worldXZ - float2(0, dz));
-    float hB = SampleHeight(worldXZ + float2(0, dz));
+    float hL = SampleHeight(localXZ - float2(dx, 0));
+    float hR = SampleHeight(localXZ + float2(dx, 0));
+    float hT = SampleHeight(localXZ - float2(0, dz));
+    float hB = SampleHeight(localXZ + float2(0, dz));
     
     return normalize(float3((hL - hR) / dx, 2.0f, (hT - hB) / dz));
 }
 
 // 顶点着色器只负责传递4个角点的XZ坐标
 // 到曲面细分阶段,不做任何处理
-PatchVertex VS(PatchVertex vin)
+VertexOut VS(VertexIn vin)
 {
-    return vin;
+    VertexOut vout;
+    vout.corner0 = vin.c0;
+    vout.corner1 = vin.c1;
+    vout.corner2 = vin.c2;
+    vout.corner3 = vin.c3;
+    vout.tess    = vin.tess;
+    return vout;
 }
 
 // 常量外壳着色器
 // 接收4个顶点,输出4个外部细分,两个内部细分
-HSConstOut HSConstant(InputPatch<PatchVertex, 4> patch)
+HSConstOut HSConstant(InputPatch<VertexOut, 4> patch)
 {
     HSConstOut cout;
     
-    // patch中心点
-    float2 center = 0.25f * (
-        patch[0].PosXZ + patch[1].PosXZ +
-        patch[2].PosXZ + patch[3].PosXZ);
-    
-    //计算距离
-    float2 d = center - gEyePosW.xz;
-    float dist = length(d);
-    
-    //细分因子插值(越近越大)
-    float t = saturate(1.0f - dist / gTerrainMaxDist);
-    float tess = lerp(gTerrainMinTess, gTerrainMaxTess, t);
+    //四个角点tess相同
+    float tess = max(patch[0].tess, 1.0f);    
     
     //4外部
     cout.EdgeTess[0]   = tess;
@@ -114,9 +118,10 @@ HSConstOut HSConstant(InputPatch<PatchVertex, 4> patch)
 // 控制点外壳着色器
 [domain("quad")] //四边形
 [partitioning("fractional_even")] //分段方式,偶数分段,消除裂缝
-[outputtopology("triangle_cw")] //输出拓扑,顺时针三角形
-[outputcontrolpoints("HSConstant")] //输出控制点数,与HSConstant一致
-PatchVertex HS(InputPatch<PatchVertex, 4> patch,
+[outputtopology("triangle_ccw")] //输出拓扑,顺时针三角形
+[outputcontrolpoints(4)] //输出控制点数,与HSConstant一致
+[patchconstantfunc("HSConstant")] //指定常量外壳着色器
+VertexOut HS(InputPatch<VertexOut, 4> patch,
                    uint i:SV_outputControlPointID)
 {
     return patch[i];
@@ -126,30 +131,33 @@ PatchVertex HS(InputPatch<PatchVertex, 4> patch,
 [domain("quad")] //四边形
 DSOut DS(HSConstOut hsConst,
         float2 uv:SV_DomainLocation,
-         const OutputPatch<PatchVertex, 4> patch)
+        const OutputPatch<VertexOut, 4> patch)
 {
     DSOut dout;
     
     // 计算世界坐标
     // 双线性插值
-    float2 bot = lerp(patch[0].PosXZ, patch[1].PosXZ, uv.x);
-    float2 top = lerp(patch[3].PosXZ, patch[2].PosXZ, uv.x);
+    float2 bot = lerp(patch[0].corner0, patch[0].corner1, uv.x);
+    float2 top = lerp(patch[0].corner3, patch[0].corner2, uv.x);
     float2 posXZ = lerp(bot, top, uv.y);
     
     // 计算高度
     float h = SampleHeight(posXZ);
     //位置
-    dout.PosW = float3(posXZ.x, h, posXZ.y);
+    float3 posL = float3(posXZ.x, h, posXZ.y);
+    dout.PosW = mul(float4(posL, 1.0f), gWorld).xyz;
+    
     //法线
-    dout.NormalW = SampleNormal(posXZ);
+    dout.NormalW = normalize(mul(float4(SampleNormal(posXZ), 0.0f), gWorld).xyz);
     //切线
     float dx = gTerrainSize.x / gTerrainTexSize.x;
     float hL = SampleHeight(posXZ - float2(dx, 0));
     float hR = SampleHeight(posXZ + float2(dx, 0));
-    dout.TangentW = normalize(float3(2.0f * dx, hR - hL, 0));
+    float3 TangentL = normalize(float3(2.0f * dx, hR - hL, 0));
+    dout.TangentW = mul(float4(TangentL, 0.0f), gWorld).xyz;
     //UV
-    dout.UV = (posXZ - gTerrainCenter) / gTerrainSize + 0.5f;
-    
+    dout.UV = posXZ / gTerrainSize + 0.5f;
+    //裁剪空间位置
     dout.PosH = mul(float4(dout.PosW, 1.0f), gViewProj);
     
     return dout;
@@ -172,8 +180,6 @@ float4 PS(DSOut pin) : SV_Target
 
     float slope = 1.0f - pin.NormalW.y; // 0 = 平地, 1 = 垂直墙面
 
-    
-   
     float hLow = 1.0f;  // 高度带分界
     float blend = 1.0f; // 过度带
 

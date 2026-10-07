@@ -9,6 +9,8 @@
 #include "Skeleton.h"
 #include "AnimationClip.h"
 #include "d3dx12.h"
+#include "TerrainHeightField.h"
+#include "QuadTree.h"
 
 using namespace DirectX;
 
@@ -19,6 +21,7 @@ Scene::Scene(ID3D12Device* device,
 	 m_cmdList(cmdList),
 	 m_cbvSrvDescSize(cbvSrvUavDescSize)
 {
+	InitInstanceBuffer(m_device);
 }
 
 Scene::~Scene() = default;
@@ -58,14 +61,12 @@ Texture* Scene::RegisterTexture(const std::string& name,
 			tex->uploadHeap,
 			&heightData));
 
-		//地形数据CPU备份
-		m_terrainHeightData = heightData.GetNormalizePixels();
-		m_terrainHeightW = heightData.pixelWidth;
-		m_terrainHeightH = heightData.pixelHeight;
-		m_terrainHeightScale = 50.0f; //可调整
-		m_isHeightTex = true;
+		// 建立地形高度场
+		m_terrHeightField = std::make_unique<TerrainHeightField>();
 
-
+		m_terrHeightField->LoadHeightData(std::move(heightData.GetNormalizePixels()),
+										  heightData.pixelWidth, 
+										  heightData.pixelHeight);
 	}
 
 	//将对应名字放入列表,用来创建描述符
@@ -191,6 +192,58 @@ void Scene::SaveSRVToHeap(ID3D12Device* device,
 
 		device->CreateShaderResourceView(skyTex->resource.Get(), &srvDesc, hHeap);
 	}
+}
+
+void Scene::BuildTerrain(Material* mat, 
+						 XMFLOAT3 center,
+						 float totalSize, 
+					     float heightScale,
+						 uint32_t patchesPerSide, 
+						 int maxDepth)
+{
+	const float half = totalSize * 0.5f;
+
+	// 填充地形高度场
+	m_terrHeightField->Build(totalSize, totalSize, heightScale);
+
+	// 构建四叉树 
+	m_quadTree = std::make_unique<QuadTree>();
+	m_quadTree->Build(center,
+		m_terrHeightField.get(),
+		totalSize,
+		patchesPerSide,
+		maxDepth);
+	// LOD参数
+	m_quadTree->maxDist = m_maxDist;
+	m_quadTree->subMax  = m_tessMax;
+	m_quadTree->subMin  = m_tessMin;
+
+	//注册地形几何体
+	GeoGenerator geo;
+	RegisterGeometry<TerrainVertex>(
+		"geo_terrain",
+		std::move(geo.CreateTerrain(half)),
+		"sub_terrain",
+		EVertexLayout::Terrain);
+
+	//可见Patch数(填充默认值,全可见)
+	m_terrainPatchCount = patchesPerSide * patchesPerSide;
+
+	//创建地形节点
+	Node* obj = AddRenderObject("terrain", "geo_terrain", "sub_terrain", mat, RenderLayer::Terrain);
+
+	//设置变换
+	obj->SetLocalTransform({ center.x, center.y, center.z });
+	auto* rc = obj->GetComponent<RenderComponent>();
+	rc->neverCull = true;//设为不剔除
+
+	//启用实例化
+	auto& sub = rc->GetSubmeshs().front();
+	sub.instStride=sizeof(TerrainPatchData);
+	//更改拓扑类型
+	sub.primitiveType = D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST;
+
+	m_terrainNode = obj;
 }
 
 Node* Scene::AddNode(const std::string& name, Node* parent)
@@ -394,7 +447,9 @@ void Scene::Update(float dt, FrameResource* frame)
 {
 	// 重置绘制统计
 	ResetDrawStats();
-	
+	//实例偏移置0
+	m_instOffset = 0;
+
 	// 组件更新
 	for (auto& pNode : m_nodes)
 	{
@@ -407,6 +462,8 @@ void Scene::Update(float dt, FrameResource* frame)
 	UpdateWorldTransforms();
 	// 包围盒更新
 	UpdateBounds();
+	// 地形LOD更新
+	UpdateTerrainLOD();
 	// 视锥体剔除
 	CullFrustum();
 	// 更新对象常量缓冲区
@@ -512,49 +569,44 @@ void Scene::Draw(ID3D12PipelineState* pso,
 		//将常量缓冲取绑定到寄存器b0
 		m_cmdList->SetGraphicsRootConstantBufferView(0, objCBAdress);
 
-		//绘制
-		m_cmdList->DrawIndexedInstanced(
-			sub->submesh.indexCount, 1, sub->submesh.startIndex, sub->submesh.vertexOffset, 0);
-
-		//统计信息
-		++m_drawStats.drawnSubmeshs;
-		++m_drawStats.drawCalls;
-		++m_drawStats.perLayerDrawn[(int)layer];
-	}
-}
-
-float Scene::GetSamplerBilinear(float u, float v) const
-{
-	if (m_terrainHeightData.empty())return 0.0f;
-
-	const UINT W = m_terrainHeightW;
-	const UINT H = m_terrainHeightH;
-
-	//uv->像素坐标
-	float fx = u * (W - 1);
-	float fy = v * (H - 1);
-
-	//取四个方向上的相邻整数坐标进行采样
-	UINT x0 = (UINT)fx;
-	UINT x1 = std::min(x0 + 1, W - 1); //边界钳制
-	UINT y0 = (UINT)fy;
-	UINT y1 = std::min(y0 + 1, H - 1); //边界钳制
-
-	float ax = fx - x0;
-	float ay = fy - y0;
-	
-	auto getH = [&](UINT x, UINT y)->float
+		//实例化分支
+		if (sub->instStride > 0 && sub->instCount > 0)
 		{
-			return m_terrainHeightData[y * W + x];
-		};
-	//4个方向上的高
-	float h00 = getH(x0, y0), h10 = getH(x1, y0);
-	float h01 = getH(x0, y1), h11 = getH(x1, y1);
-	//用x混合
-	float h0 = h00 * (1 - ax) + h10 * ax;
-	float h1 = h01 * (1 - ax) + h11 * ax;
-	//用y混合
-	return h0 * (1 - ay) + h1 * ay;
+			//动态顶点缓冲区
+			D3D12_VERTEX_BUFFER_VIEW instVBV = {};
+			instVBV.BufferLocation = sub->instAddress;
+			instVBV.SizeInBytes = sub->instStride * sub->instCount;
+			instVBV.StrideInBytes = sub->instStride;
+
+			m_cmdList->IASetVertexBuffers(1, 1, &instVBV);
+
+			//绘制实例
+			m_cmdList->DrawIndexedInstanced(
+				4,
+				sub->instCount,
+				sub->submesh.startIndex,
+				sub->submesh.vertexOffset, 0);
+
+			//统计信息
+			m_drawStats.drawnSubmeshs += sub->instCount;
+			++m_drawStats.drawCalls;
+			m_drawStats.perLayerDrawn[(int)layer] += sub->instCount;
+
+		}
+		else//正常绘制
+		{
+			//绘制
+			m_cmdList->DrawIndexedInstanced(
+				sub->submesh.indexCount, 1, sub->submesh.startIndex, sub->submesh.vertexOffset, 0);
+
+			//统计信息
+			++m_drawStats.drawnSubmeshs;
+			++m_drawStats.drawCalls;
+			++m_drawStats.perLayerDrawn[(int)layer];
+		}
+
+		
+	}
 }
 
 Texture* Scene::GetTexture(const std::string& name)
@@ -788,6 +840,72 @@ void Scene::UpdateBoneCB(FrameResource* frame)
 
 }
 
+void Scene::UpdateTerrainLOD()
+{
+	if (!m_quadTree||!m_terrainNode)return;
+
+
+	m_quadTree->Update(m_cameraEye, &m_frustum, m_visiblePatches);
+
+	auto& patches = m_visiblePatches;
+	for (size_t i = 0; i < patches.size(); ++i)
+	{
+		for (size_t j = i + 1; j < patches.size(); ++j)
+		{
+			// 检查是否共享边（两个 corner 相同）
+			int shared = 0;
+			for (int a = 0; a < 4; ++a)
+				for (int b = 0; b < 4; ++b)
+					if (fabsf(patches[i].corners[a].x - patches[j].corners[b].x) < 0.01f &&
+						fabsf(patches[i].corners[a].y - patches[j].corners[b].y) < 0.01f)
+						++shared;
+
+			if (shared >= 2)   // 共享两个角点 = 共享一条边
+			{
+				float maxTess = (std::max)(patches[i].subFactor, patches[j].subFactor);
+				patches[i].subFactor = maxTess;
+				patches[j].subFactor = maxTess;
+			}
+		}
+	}
+
+	auto* rc = m_terrainNode->GetComponent<RenderComponent>();
+	auto& sub = rc->GetSubmeshs().front();
+
+	char buf[256];
+	sprintf_s(buf, "[Terrain] visible=%zu stride=%u offset=%u\n",
+		m_visiblePatches.size(), sub.instStride, m_instOffset);
+	OutputDebugStringA(buf);
+
+	UINT stride = sub.instStride;
+	UINT count = (UINT)m_visiblePatches.size();
+
+	//在全局实例buffer上分配
+	UINT alignedSize = (stride * count + 255) & ~255u;   // 256 对齐
+
+	uint8_t* dst = m_instMapped + m_instOffset;
+
+	// 写入实例数据
+	for (UINT i = 0; i < count; ++i)
+	{
+		TerrainPatchData d;
+		d.corner[0] = m_visiblePatches[i].corners[0];
+		d.corner[1] = m_visiblePatches[i].corners[1];
+		d.corner[2] = m_visiblePatches[i].corners[2];
+		d.corner[3] = m_visiblePatches[i].corners[3];
+		d.tessFactor = m_visiblePatches[i].subFactor;
+		d.pad[0] = d.pad[1] = d.pad[2] = 0.0f;
+
+		std::memcpy(dst + i * stride, &d, stride);
+	}
+	//记录实例信息
+	sub.instCount = count;
+	sub.instAddress = m_instBuffer->GetGPUVirtualAddress() + m_instOffset;
+
+	//偏移
+	m_instOffset += alignedSize;
+}
+
 void Scene::AttachToView(Node* node, RenderComponent* comp)
 {
 	m_renderNodes.push_back(node);
@@ -808,6 +926,56 @@ void Scene::AttachToView(Node* node, SkeletonComponent* comp)
 	// 在Scene中累计骨骼偏移量传给每个蒙皮组件
 	comp->m_boneCBOffset = m_nextBoneOffset;
 	m_nextBoneOffset += count;
+}
+
+UINT Scene::GetTextureSrvIndex(const std::string& name) const
+{
+	for (UINT i = 0; i < m_tex2DList.size(); ++i)
+		if (m_tex2DList[i] == name)
+			return m_srvStartSlot + i;
+	return UINT_MAX;
+}
+
+int Scene::GetNodeObjCBIndex(const std::string& nodeName, const std::string& submeshName) const
+{
+	auto it = m_nodeByName.find(nodeName);
+	if (it == m_nodeByName.end()) return -1;
+
+	auto* rc = it->second->GetComponent<RenderComponent>();
+	if (!rc) return -1;
+
+	const auto& subs = rc->GetSubmeshs();
+	if (subs.empty()) return -1;
+
+	if (submeshName.empty())
+		return subs.front().objCBIndex;
+
+	//按名字查
+	for (const auto& sub : subs)
+	{
+		if (sub.submeshName == submeshName)
+			return sub.objCBIndex;
+	}
+	return -1;
+}
+
+void Scene::InitInstanceBuffer(ID3D12Device* device)
+{
+	//上传堆
+	CD3DX12_HEAP_PROPERTIES  heap(D3D12_HEAP_TYPE_UPLOAD);
+	auto desc = CD3DX12_RESOURCE_DESC::Buffer(m_instBufferSize);
+	ThrowIfFailed(device->CreateCommittedResource(
+		&heap,
+		D3D12_HEAP_FLAG_NONE,
+		&desc,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&m_instBuffer)));
+
+	CD3DX12_RANGE range(0, 0);//CPU只写
+	//返回 GPU资源映射到CPU的可写内存指针
+	ThrowIfFailed(m_instBuffer->Map(
+		0, &range, reinterpret_cast<void**>(&m_instMapped)));
 }
 
 int Scene::AllocObjCBIndex()

@@ -25,6 +25,11 @@ struct SubmeshDraw
 	Material*           material      = nullptr;               // 材质数据
 	int                 objCBIndex    = -1;                    // 常量缓冲区索引
 	DirectX::XMFLOAT4X4 texTransform  = DxMath::Identity4x4(); // 纹理变换
+
+	// 实例化绘制字段
+	uint32_t instStride = 0;                                   // 实例字节数
+	uint32_t instCount = 0;                                    // 实例化数
+	D3D12_GPU_VIRTUAL_ADDRESS instAddress = 0;                 // 实例缓冲区地址
 	
 
 	// 渲染状态

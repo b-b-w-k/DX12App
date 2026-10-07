@@ -26,8 +26,7 @@ public:
 	using VertexMeshData = TMeshData<Vertex>;
 	using ColorMeshData = TMeshData<ColorVertex>;
 	using SkeletonMeshData = TMeshData<SkeletonVertex>;
-	// 定义高度采样器回调函数(根据采样坐标返回高度值)
-	using HeightSampler = std::function<float(float u, float v)>;
+	using PatchData = TMeshData<TerrainVertex>;
 
 	//蒙皮模型数据
 	struct SkinnedData
@@ -46,13 +45,7 @@ public:
 	ColorMeshData  CreateFrustum(float nz, float fz, 
 								 float nh, float nw,
 								 float fh, float fw);
-	//创建地形(通过高度采样器获取地形高度),支持高度图或程序化生成(二重贝塞尔,正弦波)
-	VertexMeshData CreatTerrain(
-		float width, float depth,           // 宽高 
-		uint32_t col, uint32_t row,         // 行列数
-		const HeightSampler& heightSampler, // 高度采样器
-		float heightScale = 1.0f,           // 高度缩放
-		float uvScale     = 1.0f);          // 纹理缩放
+	PatchData CreateTerrain(float half);
 
 private:
 	void Subdivide(VertexMeshData& meshData);//细分

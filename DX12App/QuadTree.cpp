@@ -5,7 +5,8 @@
 
 using namespace DirectX;
 
-void QuadTree::Build(float centerX, float centerZ,
+void QuadTree::Build(XMFLOAT3 offset,
+					TerrainHeightField* heightField,
 					 float totalSize, 
 					 uint32_t patchesPerSide, 
 					 int maxDepth)
@@ -14,19 +15,26 @@ void QuadTree::Build(float centerX, float centerZ,
 	//清理旧数据
 	for (auto* n : m_allNodes)delete n;
 	m_allNodes.clear();
-
+	// 填充数据
 	m_totalSize = totalSize;
 	m_patchesPerSide = patchesPerSide;
 	m_maxDepth = maxDepth;
+	m_offset = offset;
 
 	// ==== 创建根节点 ====
 	m_root = new QuadNode();
 	m_allNodes.push_back(m_root);
-	// 填充结构体
+
+	// 采样地形高度(用局部坐标)
+	float h = 0.0f;
+	if (heightField)
+		heightField->SampleHeight(0, 0, h);
+		
+	// 填充树节点结构体
 	float half = totalSize * 0.5f;
-	m_root->worldMin = { centerX - half,centerZ - half };
-	m_root->worldMax = { centerX + half,centerZ + half };
-	m_root->center = { centerX,0.0f,centerZ };//y默认0,用来计算距离
+	m_root->worldMin = { offset.x - half, offset.z - half };
+	m_root->worldMax = { offset.x + half, offset.z + half };
+	m_root->center = { offset.x,  offset.y + h,  offset.z };// 存的是世界坐标的中心
 	m_root->depth = 0; //根节点深度为0
 	m_root->isLeaf = true;//默认当作是叶子节点(最后一层的节点),后续按情况改变
 
@@ -37,7 +45,7 @@ void QuadTree::Build(float centerX, float centerZ,
 	//首先推入根节点
 	stack.push_back(m_root);
 
-	// 最小子节点的边长
+	// 最小子节点的边长(用于判断是否可以细分)
 	const float baseSize = totalSize / patchesPerSide;
 
 	//开始遍历
@@ -89,12 +97,17 @@ void QuadTree::Build(float centerX, float centerZ,
 
 			cNode->worldMin = { childMin[i][0], childMin[i][1] };
 			cNode->worldMax = { childMax[i][0], childMax[i][1] };
-			cNode->center =
-			{
-				(cNode->worldMin.x + cNode->worldMax.x) * 0.5f,
-				0.0f,
-				(cNode->worldMin.y + cNode->worldMax.y) * 0.5f
-			};
+
+			float cY = node->center.y; //默认用父节点高度
+			float cX = (cNode->worldMin.x + cNode->worldMax.x) * 0.5f;
+			float cZ = (cNode->worldMin.y + cNode->worldMax.y) * 0.5f;
+			//采样要用局部坐标
+			float localX = cX - offset.x;
+			float localZ = cZ - offset.z;
+			// 重新采样高度
+			if (heightField)
+				heightField->SampleHeight(localX, localZ, cY);
+			cNode->center ={ cX , offset.y+cY , cZ };// 存的是世界坐标的中心
 			cNode->depth = node->depth + 1;
 			cNode->isLeaf = true; //默认先设为true,有子节点时才改变
 
@@ -153,7 +166,8 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 		// 相机到节点中心的距离
 		float dx = eyePos.x - node->center.x;
 		float dz = eyePos.z - node->center.z;
-		float distSq = dx * dx + dz * dz;
+		float dy = eyePos.y - node->center.y;
+		float distSq = dx * dx + dz * dz + dy * dy;
 		float dist = sqrtf(distSq);
 
 		//判断是否需要展开
@@ -183,12 +197,15 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 			float subFactor = subMin + t * (subMax - subMin);
 
 			TerrainPatch p;
-			p.corners[0] = { node->worldMin.x,node->worldMin.y };// 左上
-			p.corners[1] = { node->worldMax.x,node->worldMin.y };// 右上
-			p.corners[2] = { node->worldMax.x,node->worldMax.y };// 右下
-			p.corners[3] = { node->worldMin.x,node->worldMax.y };// 左下
+			//将世界坐标转回局部坐标
+			p.corners[0] = { node->worldMin.x - m_offset.x,node->worldMin.y - m_offset.z };// 左上
+			p.corners[1] = { node->worldMax.x - m_offset.x,node->worldMin.y - m_offset.z };// 右上
+			p.corners[2] = { node->worldMax.x - m_offset.x,node->worldMax.y - m_offset.z };// 右下
+			p.corners[3] = { node->worldMin.x - m_offset.x,node->worldMax.y - m_offset.z };// 左下
 
-			p.center = node->center;
+			p.center = { node->center.x - m_offset.x,
+						 node->center.y - m_offset.y,
+						 node->center.z - m_offset.z };
 			p.subFactor = subFactor;
 			p.lodLevel = node->depth;
 
@@ -196,4 +213,5 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 		}
 
 	}
+
 }
