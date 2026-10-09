@@ -21,7 +21,6 @@ Scene::Scene(ID3D12Device* device,
 	 m_cmdList(cmdList),
 	 m_cbvSrvDescSize(cbvSrvUavDescSize)
 {
-	InitInstanceBuffer(m_device);
 }
 
 Scene::~Scene() = default;
@@ -198,9 +197,11 @@ void Scene::BuildTerrain(Material* mat,
 						 XMFLOAT3 center,
 						 float totalSize, 
 					     float heightScale,
-						 uint32_t patchesPerSide, 
-						 int maxDepth)
+						 float minLeafSize)
 {
+	m_terrainSize = totalSize;
+	m_terrainHeightScale = heightScale;
+
 	const float half = totalSize * 0.5f;
 
 	// 填充地形高度场
@@ -211,8 +212,7 @@ void Scene::BuildTerrain(Material* mat,
 	m_quadTree->Build(center,
 		m_terrHeightField.get(),
 		totalSize,
-		patchesPerSide,
-		maxDepth);
+		minLeafSize);
 	// LOD参数
 	m_quadTree->maxDist = m_maxDist;
 	m_quadTree->subMax  = m_tessMax;
@@ -226,9 +226,7 @@ void Scene::BuildTerrain(Material* mat,
 		"sub_terrain",
 		EVertexLayout::Terrain);
 
-	//可见Patch数(填充默认值,全可见)
-	m_terrainPatchCount = patchesPerSide * patchesPerSide;
-
+	
 	//创建地形节点
 	Node* obj = AddRenderObject("terrain", "geo_terrain", "sub_terrain", mat, RenderLayer::Terrain);
 
@@ -447,8 +445,6 @@ void Scene::Update(float dt, FrameResource* frame)
 {
 	// 重置绘制统计
 	ResetDrawStats();
-	//实例偏移置0
-	m_instOffset = 0;
 
 	// 组件更新
 	for (auto& pNode : m_nodes)
@@ -463,7 +459,7 @@ void Scene::Update(float dt, FrameResource* frame)
 	// 包围盒更新
 	UpdateBounds();
 	// 地形LOD更新
-	UpdateTerrainLOD();
+	UpdateTerrainLOD(frame);
 	// 视锥体剔除
 	CullFrustum();
 	// 更新对象常量缓冲区
@@ -607,6 +603,14 @@ void Scene::Draw(ID3D12PipelineState* pso,
 
 		
 	}
+}
+
+DirectX::XMFLOAT2 Scene::GetTextureSize(const std::string& name)
+{
+	Texture* tex = GetTexture(name);
+	if (!tex || !tex->resource) return { 1.0f, 1.0f };
+	const D3D12_RESOURCE_DESC desc = tex->resource->GetDesc();
+	return { (float)desc.Width, (float)desc.Height };
 }
 
 Texture* Scene::GetTexture(const std::string& name)
@@ -840,70 +844,52 @@ void Scene::UpdateBoneCB(FrameResource* frame)
 
 }
 
-void Scene::UpdateTerrainLOD()
+void Scene::UpdateTerrainLOD(FrameResource* frame)
 {
 	if (!m_quadTree||!m_terrainNode)return;
 
-
+	// 获取可见patch
 	m_quadTree->Update(m_cameraEye, &m_frustum, m_visiblePatches);
 
-	auto& patches = m_visiblePatches;
-	for (size_t i = 0; i < patches.size(); ++i)
-	{
-		for (size_t j = i + 1; j < patches.size(); ++j)
-		{
-			// 检查是否共享边（两个 corner 相同）
-			int shared = 0;
-			for (int a = 0; a < 4; ++a)
-				for (int b = 0; b < 4; ++b)
-					if (fabsf(patches[i].corners[a].x - patches[j].corners[b].x) < 0.01f &&
-						fabsf(patches[i].corners[a].y - patches[j].corners[b].y) < 0.01f)
-						++shared;
-
-			if (shared >= 2)   // 共享两个角点 = 共享一条边
-			{
-				float maxTess = (std::max)(patches[i].subFactor, patches[j].subFactor);
-				patches[i].subFactor = maxTess;
-				patches[j].subFactor = maxTess;
-			}
-		}
-	}
 
 	auto* rc = m_terrainNode->GetComponent<RenderComponent>();
 	auto& sub = rc->GetSubmeshs().front();
 
-	char buf[256];
-	sprintf_s(buf, "[Terrain] visible=%zu stride=%u offset=%u\n",
-		m_visiblePatches.size(), sub.instStride, m_instOffset);
-	OutputDebugStringA(buf);
-
-	UINT stride = sub.instStride;
+	// 获取可见patch数量,用于容量校验
 	UINT count = (UINT)m_visiblePatches.size();
 
-	//在全局实例buffer上分配
-	UINT alignedSize = (stride * count + 255) & ~255u;   // 256 对齐
-
-	uint8_t* dst = m_instMapped + m_instOffset;
-
+	//校验大小
+	if (count > FrameResource::maxTerrainPatches)
+	{
+		OutputDebugStringA("[Terrain] 实例缓冲容量不足，本帧patch被截断\n");
+		count = FrameResource::maxTerrainPatches;
+	}
+	if (count == 0)//无可见patch,不使用实例绘制
+	{
+		sub.instCount = 0;
+		return;
+	}
 	// 写入实例数据
 	for (UINT i = 0; i < count; ++i)
 	{
 		TerrainPatchData d;
-		d.corner[0] = m_visiblePatches[i].corners[0];
-		d.corner[1] = m_visiblePatches[i].corners[1];
-		d.corner[2] = m_visiblePatches[i].corners[2];
-		d.corner[3] = m_visiblePatches[i].corners[3];
-		d.tessFactor = m_visiblePatches[i].subFactor;
-		d.pad[0] = d.pad[1] = d.pad[2] = 0.0f;
+		d.corner[0]   = m_visiblePatches[i].corners[0];
+		d.corner[1]   = m_visiblePatches[i].corners[1];
+		d.corner[2]   = m_visiblePatches[i].corners[2];
+		d.corner[3]   = m_visiblePatches[i].corners[3];
+		d.edgeTess[0] = m_visiblePatches[i].edgeTess[0];
+		d.edgeTess[1] = m_visiblePatches[i].edgeTess[1];
+		d.edgeTess[2] = m_visiblePatches[i].edgeTess[2];
+		d.edgeTess[3] = m_visiblePatches[i].edgeTess[3];
 
-		std::memcpy(dst + i * stride, &d, stride);
+		frame->terrainPatchBuffer->CopyData((int)i, d);
 	}
-	//记录实例信息
-	sub.instCount = count;
-	sub.instAddress = m_instBuffer->GetGPUVirtualAddress() + m_instOffset;
 
-	//偏移
-	m_instOffset += alignedSize;
+	//更新已用patch
+	m_instPatchCount = count;
+	//更新sub实例数据
+	sub.instCount = count;
+	sub.instAddress = frame->terrainPatchBuffer->Resource()->GetGPUVirtualAddress();
 }
 
 void Scene::AttachToView(Node* node, RenderComponent* comp)
@@ -957,25 +943,6 @@ int Scene::GetNodeObjCBIndex(const std::string& nodeName, const std::string& sub
 			return sub.objCBIndex;
 	}
 	return -1;
-}
-
-void Scene::InitInstanceBuffer(ID3D12Device* device)
-{
-	//上传堆
-	CD3DX12_HEAP_PROPERTIES  heap(D3D12_HEAP_TYPE_UPLOAD);
-	auto desc = CD3DX12_RESOURCE_DESC::Buffer(m_instBufferSize);
-	ThrowIfFailed(device->CreateCommittedResource(
-		&heap,
-		D3D12_HEAP_FLAG_NONE,
-		&desc,
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
-		IID_PPV_ARGS(&m_instBuffer)));
-
-	CD3DX12_RANGE range(0, 0);//CPU只写
-	//返回 GPU资源映射到CPU的可写内存指针
-	ThrowIfFailed(m_instBuffer->Map(
-		0, &range, reinterpret_cast<void**>(&m_instMapped)));
 }
 
 int Scene::AllocObjCBIndex()

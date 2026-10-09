@@ -74,7 +74,7 @@ struct MaterialData
 struct TerrainConstants
 {
 	DirectX::XMFLOAT2 gTerrainSize    = { 500,500 };
-	DirectX::XMFLOAT2 gTerrainTexSize = { 256,256 };
+	DirectX::XMFLOAT2 gTerrainTexSize = { 1080, 1080 };
 	float  gTerrainScale = 50;
 	float  pad[3] = { 0,};
 };
@@ -82,9 +82,9 @@ struct TerrainConstants
 // 每个地形patch数据
 struct TerrainPatchData
 {
-	DirectX::XMFLOAT2 corner[4] = { {0,0}, }; // 每个patch的四个角点
-	float tessFactor = 1.0f;                  // 每个patch的细分因子
-	float pad[3] = { 0, };
+	DirectX::XMFLOAT2 corner[4] = { {0,0}, };		// 每个patch的四个角点
+	float edgeTess[4] = { 1.0f, 1.0f, 1.0f, 1.0f }; // 每个patch边的细分因子
+
 };
 
 struct FrameResource
@@ -99,15 +99,18 @@ struct FrameResource
 
 	// 支持12个角色*每128根骨骼
 	static const uint32_t maxBones = 12 * 128;
+	// 地形patch实例缓冲区最大容量
+	static const uint32_t maxTerrainPatches = 4096;
 
 	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> cmdAllocator;//命令分配器
 
 	// 资源缓冲区
-	std::unique_ptr<UpLoadBuffer<ObjectConstants>>	   objectCBuffer = nullptr;
-	std::unique_ptr<UpLoadBuffer<PassConstants>>	   passCBuffer   = nullptr;
-	std::unique_ptr<UpLoadBuffer<MaterialData>>		   matBuffer     = nullptr;
-	std::unique_ptr<UpLoadBuffer<DirectX::XMFLOAT4X4>> boneBuffer    = nullptr; // 存储至根骨骼变换矩阵
-	std::unique_ptr<UpLoadBuffer<TerrainConstants>>    terrainBuffer = nullptr; // 地形常量缓冲区
+	std::unique_ptr<UpLoadBuffer<ObjectConstants>>	   objectCBuffer	  = nullptr;
+	std::unique_ptr<UpLoadBuffer<PassConstants>>	   passCBuffer		  = nullptr;
+	std::unique_ptr<UpLoadBuffer<MaterialData>>		   matBuffer		  = nullptr;
+	std::unique_ptr<UpLoadBuffer<DirectX::XMFLOAT4X4>> boneBuffer		  = nullptr; // 存储至根骨骼变换矩阵
+	std::unique_ptr<UpLoadBuffer<TerrainConstants>>    terrainBuffer	  = nullptr; // 地形常量缓冲区
+	std::unique_ptr<UpLoadBuffer<TerrainPatchData>>    terrainPatchBuffer = nullptr;
 
 	uint32_t fence = 0;//围栏值
 };

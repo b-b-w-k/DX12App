@@ -15,6 +15,7 @@ FrameResource::FrameResource(ID3D12Device* device,
 	matBuffer = std::make_unique<UpLoadBuffer<MaterialData>>(device, matCount, false);
 	boneBuffer = std::make_unique<UpLoadBuffer<DirectX::XMFLOAT4X4>>(device, maxBones, false);
 	terrainBuffer = std::make_unique <UpLoadBuffer<TerrainConstants>>(device, 1, true);
+	terrainPatchBuffer = std::make_unique <UpLoadBuffer<TerrainPatchData>>(device, maxTerrainPatches, false);
 }
 
 FrameResource::~FrameResource()

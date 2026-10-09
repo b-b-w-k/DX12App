@@ -123,8 +123,8 @@ public:
                       DirectX::XMFLOAT3 center,      // 地形中心点(偏移)
                       float totalSize,               // 地形边长
                       float heightScale,             // 高度缩放
-                      uint32_t patchesPerSide,       // 四叉树节点最大分段
-                      int maxDepth);                 // 四叉树最大深度
+                      float minLeafSize);            // 最大叶子的世界边长(
+
 
     // ====== 添加场景对象 ======
 
@@ -204,7 +204,10 @@ public:
 	const std::vector<Node*>& GetSkeletonNodes() const { return m_skeletonNodes; }
     // 获取所有地形可见Patch
     const std::vector<TerrainPatch>& GetTerrainPatches()const { return m_visiblePatches; }
-
+    //获取地形高度图数据
+	float GetTerrainSize()        const { return m_terrainSize; }
+	float GetTerrainHeightScale() const { return m_terrainHeightScale; }
+    DirectX::XMFLOAT2 GetTextureSize(const std::string& name);
 	// 获取单个资源数据
 	Texture*      GetTexture (const std::string& name);   // 纹理
 	MeshGeometry* GetGeometry(const std::string& name);   // 网格
@@ -220,8 +223,10 @@ public:
     UINT GetAnimateNum()      const { return (UINT)m_animateClips.size(); }
     UINT GetRenderNum()       const { return (UINT)m_renderNodes.size(); }
     UINT GetSubmeshNum()      const { return  m_totalSubmeshs;}
-    UINT GetTerrainPatchNum() const { return  m_terrainPatchCount; }
    
+	
+	
+
 	// 获取绘制信息
 	const DrawStats& GetDrawStats() { return m_drawStats; }
     // 获取视锥体(debug可视化)
@@ -237,21 +242,20 @@ public:
 
 private:
     
-    void InitInstanceBuffer(ID3D12Device* device);
     // 索引池分配和回收
     int AllocObjCBIndex();
     void RecycleObjCBIndex(int index);
     // 对象到观察点的距离
     float DistSqSubmeshToEye(const SubmeshDraw* sub);
 
-	void CullFrustum();                      // 视锥体剔除
-	void ReBuildNodeList();                  // 重建对象线性表(BFS拓扑排序)
-	void UpdateWorldTransforms();            // 更新节点对象的世界变换矩阵(根据线性表)
-	void UpdateBounds();                     // 更新节点对象的包围盒(根据世界变换矩阵)
-	void UpdateObjCB(FrameResource* frame);  // 更新节点对象的对象常量缓冲区
-	void UpdateMatCB(FrameResource* frame);  // 更新节点对象的材质常量缓冲区
-	void UpdateBoneCB(FrameResource* frame); // 更新节点对象的骨骼常量缓冲区
-    void UpdateTerrainLOD();                 // 更新地形LOD
+	void CullFrustum();                         // 视锥体剔除
+	void ReBuildNodeList();                     // 重建对象线性表(BFS拓扑排序)
+	void UpdateWorldTransforms();               // 更新节点对象的世界变换矩阵(根据线性表)
+	void UpdateBounds();                        // 更新节点对象的包围盒(根据世界变换矩阵)
+	void UpdateObjCB(FrameResource* frame);     // 更新节点对象的对象常量缓冲区
+	void UpdateMatCB(FrameResource* frame);     // 更新节点对象的材质常量缓冲区
+	void UpdateBoneCB(FrameResource* frame);    // 更新节点对象的骨骼常量缓冲区
+    void UpdateTerrainLOD(FrameResource* frame);// 更新地形LOD
    
 private:
 
@@ -271,14 +275,14 @@ private:
 	//地形数据
     std::unique_ptr<TerrainHeightField> m_terrHeightField;        // 地形高度场(用于采样地形高度图)
     std::vector<TerrainPatch> m_visiblePatches;                   // 可见patch数据
-    uint32_t m_terrainPatchCount = 0;                             // 可见Patch数量
     Node* m_terrainNode = nullptr;                                // 地形节点
-
+    float m_terrainSize = 0;                                      // 高度图大小
+    float m_terrainHeightScale = 0;                               // 高度图y缩放
 	// 四叉树参数
     std::unique_ptr<QuadTree> m_quadTree;                         // 四叉树,用于剔除不可见Patch
-	float m_tessMin = 1.0f;	                                      // 最远时细分因子
-	float m_tessMax = 64.0f;	                                  // 最近时细分因子
-	float m_maxDist = 200.0f;	                                  // 最大细分距离(超过这个距离用tessMin)
+	float m_tessMin = 8.0f;	                                      // 最远时细分因子
+	float m_tessMax = 32.0f;	                                  // 最近时细分因子
+	float m_maxDist = 100.0f;	                                  // 最大细分距离(超过这个距离用tessMin)
 
     // 场景对象(逻辑层,组织对象)
     std::vector<std::unique_ptr<Node>> m_nodes;                   // 所有节点(拥有者)
@@ -302,11 +306,6 @@ private:
     DrawStats m_drawStats;                                        // 绘制信息统计
     int m_totalSubmeshs =0;                                       // 子网格总数
 
-    // 全局实例缓冲区
-    static const uint32_t m_instBufferSize = 4 * 1024 * 1024;     // 实例缓冲区大小
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_instBuffer;          // 实例缓冲区
-    uint8_t* m_instMapped = nullptr;                              // 
-    uint32_t m_instOffset = 0;                                    // 每帧写入偏移
 
 	// SRV 堆,由全局堆管理,场景只使用
     ID3D12DescriptorHeap* m_srvHeap = nullptr;                    // srv堆指针
@@ -321,6 +320,7 @@ private:
     int      m_nextObjCBIndex = 0;                                // 自动推出下一个ObjCB的索引
     int      m_nextMatIndex   = 0;                                // 自动推出下一个MatCB的索引
     uint32_t m_nextBoneOffset = 0;                                // 自动推出下一个骨骼的偏移
+    uint32_t m_instPatchCount = 0;                                // 实例缓冲区已写入Patch数
 
 };
 

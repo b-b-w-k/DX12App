@@ -45,12 +45,30 @@ private:
 
 	void UpdateController(float dt);   // 更新摄像机控制器
 	void UpdateMainPassCB(float dt);   // 更新主Pass常量缓冲区
-    void UpdateTerrainCB (float dt);   // 更新地形PatchCB
 
     void BuildShadersAndInputLayout(); // 着色器编译及输入布局描述
     void BuildRootSignature();         // 构建根签名
     void BuildFrameResource();         // 构建帧资源
     void BuildPSO();                   // 构建渲染管线状态对象
+
+    // ===== PSO 构建 =====
+    D3D12_SHADER_BYTECODE              Shader(const char* name) const; // 按名字取已编译着色器
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC BasePsoDesc() const;            // 不透明基座
+    D3D12_RENDER_TARGET_BLEND_DESC     AlphaBlendDesc() const;         // 透明混合基座
+    void CreatePso(const char* name, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& desc);
+
+    void BuildOpaquePso();             //不透明
+    void BuildSkinnedPso();            //骨骼
+    void BuildTerrainPso();            //地形
+    void BuildReflectPso();            //反射
+    void BuildTransparentPso();        //透明
+    void BuildMirrorPso();             //平面镜
+    void BuildWavePso();               //水面
+    void BuildAlphaTestPso();          //透明测试
+    void BuildWirePso();               //线框
+    void BuildSkyBoxPso();             //天空盒
+    void BuildDebugPso();              //调试线
+
     void BuildScene();                 // 构建场景
     void BuildReflection();            // 构建反射
 
@@ -121,7 +139,6 @@ private:
     // ===== 缓冲区更新数据 =====
 	PassConstants    m_mainPassCB;                                       // 主过程常量缓冲区
 	PassConstants    m_reflectPassCB;                                    // 反射过程常量缓冲区
-    TerrainConstants m_terrainCB;                                        // 地形常量缓冲区
 
 	bool m_isShow = false;                                               // 是否显示调试信息
 

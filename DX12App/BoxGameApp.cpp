@@ -653,14 +653,6 @@ void BoxGameApp::UpdateMainPassCB(float dt)
 
 }
 
-void BoxGameApp::UpdateTerrainCB(float dt)
-{
-	m_terrainCB.gTerrainSize = { 500.0f, 500.0f };
-	m_terrainCB.gTerrainTexSize = { 256.0f, 256.0f };   // 高度图分辨率
-	m_terrainCB.gTerrainScale = 50.0f;
-
-	m_curFrameResource->terrainBuffer->CopyData(0, m_terrainCB);
-}
 
 void BoxGameApp::GameUpdate()
 {
@@ -691,7 +683,6 @@ void BoxGameApp::GameUpdate()
 
 	//更新过程常量缓冲区
 	UpdateMainPassCB(dt);
-	UpdateTerrainCB(dt);
 	
 	//输入管理更新
 	m_inputManage->EndUpdate();
@@ -936,6 +927,12 @@ void BoxGameApp::BuildRootSignature()
 
 void BoxGameApp::BuildFrameResource()
 {
+	//地形数据是运行时常量无需更新
+	TerrainConstants terrainCB{};
+	terrainCB.gTerrainSize = { m_scene->GetTerrainSize(), m_scene->GetTerrainSize() };
+	terrainCB.gTerrainTexSize = m_scene->GetTextureSize("terrainHeight");
+	terrainCB.gTerrainScale = m_scene->GetTerrainHeightScale();
+
 	for (int i = 0; i < numFrameResources; i++)
 	{
 		m_frameResources.push_back(std::make_unique<FrameResource>(
@@ -943,6 +940,8 @@ void BoxGameApp::BuildFrameResource()
 			8,//过程常量+平面反射常量+Cube反射CB
 			m_scene->GetSubmeshNum(),   // 对象CB
 			m_scene->GetMaterialNum()));// 材质缓冲区
+
+		m_frameResources.back()->terrainBuffer->CopyData(0, terrainCB);
 	}
 }
 
@@ -1019,211 +1018,205 @@ void BoxGameApp::BuildShadersAndInputLayout()
 		{"POSITION",0,DXGI_FORMAT_R32G32_FLOAT,0, 0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
 
 		// slot1 ,每个patch实例,4个角点+1个细分因子
-		{"PATCH_C",   0,DXGI_FORMAT_R32G32_FLOAT,1, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
-		{"PATCH_C",   1,DXGI_FORMAT_R32G32_FLOAT,1, 8, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
-		{"PATCH_C",   2,DXGI_FORMAT_R32G32_FLOAT,1, 16,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
-		{"PATCH_C",   3,DXGI_FORMAT_R32G32_FLOAT,1, 24,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
-		{"PATCH_TESS",0,DXGI_FORMAT_R32_FLOAT,   1, 32,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   0,DXGI_FORMAT_R32G32_FLOAT,		1, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   1,DXGI_FORMAT_R32G32_FLOAT,		1, 8, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   2,DXGI_FORMAT_R32G32_FLOAT,		1, 16,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_C",   3,DXGI_FORMAT_R32G32_FLOAT,		1, 24,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
+		{"PATCH_TESS",0,DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32,D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,1},
 	};
 
+}
+
+
+D3D12_SHADER_BYTECODE BoxGameApp::Shader(const char* name) const
+{
+	auto it = m_shaders.find(name);
+	if (it == m_shaders.end())
+	{
+		OutputDebugStringA((std::string("[PSO] missing shader: ") + name + "\n").c_str());
+		return { nullptr, 0 };
+	}
+	return { reinterpret_cast<BYTE*>(it->second->GetBufferPointer()),
+             it->second->GetBufferSize() };
+}
+
+D3D12_GRAPHICS_PIPELINE_STATE_DESC BoxGameApp::BasePsoDesc() const
+{
+	//不透明基座:其余 PSO 都以它为起点改状态
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+	desc.InputLayout = { m_inputLayout.data(),(UINT)m_inputLayout.size() };
+	desc.pRootSignature = m_rootSignature.Get();
+	desc.VS = Shader("standardVS");
+	desc.PS = Shader("standardPS");
+	desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	desc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	desc.SampleMask = UINT_MAX;
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;//三角形
+	desc.NumRenderTargets = 1;
+	desc.RTVFormats[0] = m_backBufferFormat;
+	desc.SampleDesc.Count = m_is4xMsaaState ? 4 : 1;
+	desc.SampleDesc.Quality = m_is4xMsaaState ? (m_4xMsaaQuality - 1) : 0;
+	desc.DSVFormat = m_depthStencilFormat;
+	return desc;
+}
+
+D3D12_RENDER_TARGET_BLEND_DESC BoxGameApp::AlphaBlendDesc() const
+{
+	//透明混合描述(10 个成员全写,避免残留未初始化)
+	D3D12_RENDER_TARGET_BLEND_DESC d{};
+	d.BlendEnable = true;//开启透明混合
+	d.LogicOpEnable = false;//关闭逻辑运算符
+	d.SrcBlend = D3D12_BLEND_SRC_ALPHA; //源RGB混合因子用源alpha
+	d.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;//目标RGB混合因子用源alpha取反
+	d.BlendOp = D3D12_BLEND_OP_ADD;     //RGB混合运算符加法
+	d.SrcBlendAlpha = D3D12_BLEND_ONE;  //源A混合因子为1
+	d.DestBlendAlpha = D3D12_BLEND_ZERO;//目标A混合因子为0
+	d.BlendOpAlpha = D3D12_BLEND_OP_ADD;//A混合运算符加法
+	d.LogicOp = D3D12_LOGIC_OP_NOOP;    //逻辑运算符,没用
+	d.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;//全写入后台缓冲区
+	return d;
+}
+
+void BoxGameApp::CreatePso(const char* name, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& desc)
+{
+	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
+		&desc,
+		IID_PPV_ARGS(&m_PSOs[name])));
+}
+
+
+void BoxGameApp::BuildOpaquePso()
+{
+	auto desc = BasePsoDesc();
+	CreatePso("Opaque", desc);
+}
+
+void BoxGameApp::BuildSkinnedPso()
+{
+	auto desc = BasePsoDesc();
+	desc.InputLayout = { m_skinInputLayout.data(),(UINT)m_skinInputLayout.size() };
+	desc.VS = Shader("skinnedVS");
+	CreatePso("Skinned", desc);
+}
+
+void BoxGameApp::BuildTerrainPso()
+{
+	auto desc = BasePsoDesc();
+	desc.InputLayout =
+	{
+		m_terrainInputLayout.data(),
+		(UINT)m_terrainInputLayout.size()
+	};
+	desc.VS = Shader("terrainVS");
+	desc.HS = Shader("terrainHS");
+	desc.DS = Shader("terrainDS");
+	desc.PS = Shader("terrainPS");
+	//patch
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+	//desc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	CreatePso("Terrain", desc);
+}
+
+void BoxGameApp::BuildReflectPso()
+{
+	auto desc = BasePsoDesc();
+	desc.RasterizerState.FrontCounterClockwise = TRUE;   //三角形绕序翻转
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
+	CreatePso("ReflectOpaque", desc);
+}
+
+void BoxGameApp::BuildTransparentPso()
+{
+	auto desc = BasePsoDesc();
+	// 默认关闭,用于代替AlphaTest,但要开启MSAA
+	desc.BlendState.AlphaToCoverageEnable = false;
+	// 可以为最多8个渲染目标设置不同的混合参数
+	desc.BlendState.RenderTarget[0] = AlphaBlendDesc();
+	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;//关闭深度写入
+	desc.DepthStencilState.DepthEnable = true;
+	desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	CreatePso("Transparent", desc);
+}
+
+void BoxGameApp::BuildMirrorPso()
+{
+	
+	auto desc = BasePsoDesc();
+	desc.PS = Shader("mirrorPS");
+	desc.BlendState.RenderTarget[0] = AlphaBlendDesc();//用透明混合的
+	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;//关闭深度写入
+	desc.DepthStencilState.DepthEnable = true;
+	desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	CreatePso("Mirror", desc);
+}
+
+void BoxGameApp::BuildWavePso()
+{
+	auto desc = BasePsoDesc();
+	desc.PS = Shader("wavePS");
+	desc.BlendState.RenderTarget[0] = AlphaBlendDesc();
+	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	desc.DepthStencilState.DepthEnable = true;
+	desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	CreatePso("Wave", desc);
+}
+
+void BoxGameApp::BuildAlphaTestPso()
+{
+	auto desc = BasePsoDesc();
+	desc.PS = Shader("alphaTestPS");
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
+	CreatePso("AlphaTest", desc);
+}
+
+void BoxGameApp::BuildWirePso()
+{
+	auto desc = BasePsoDesc();
+	desc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	CreatePso("Wire", desc);
+}
+
+void BoxGameApp::BuildSkyBoxPso()
+{
+	auto desc = BasePsoDesc();
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
+	//深度测试<=保留 防止清理深度缓冲为1时,NDC归一化为1的值被剔除
+	desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	desc.VS = Shader("skyBoxVS");
+	desc.PS = Shader("skyBoxPS");
+	CreatePso("SkyBox", desc);
+}
+
+void BoxGameApp::BuildDebugPso()
+{
+	auto desc = BasePsoDesc();
+	desc.InputLayout = { m_colorInputLayout.data(),(UINT)m_colorInputLayout.size() };
+	desc.VS = Shader("colorVS");
+	desc.PS = Shader("colorPS");
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//不剔除
+	desc.DepthStencilState.DepthEnable = FALSE;
+	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;//线
+	CreatePso("Debug", desc);
 }
 
 void BoxGameApp::BuildPSO()
 {
 	//创建渲染管线状态对象
-
-	//================不透明================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc{};
-	opaquePsoDesc.InputLayout = { m_inputLayout.data(),(UINT)m_inputLayout.size() };
-	opaquePsoDesc.pRootSignature = m_rootSignature.Get();
-	opaquePsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["standardVS"]->GetBufferPointer()),
-		m_shaders["standardVS"]->GetBufferSize()
-	};
-	opaquePsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["standardPS"]->GetBufferPointer()),
-		m_shaders["standardPS"]->GetBufferSize()
-	};
-	opaquePsoDesc.RasterizerState= CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.BlendState= CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.DepthStencilState= CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;//三角形
-	opaquePsoDesc.NumRenderTargets = 1;
-	opaquePsoDesc.RTVFormats[0] = m_backBufferFormat;
-	opaquePsoDesc.SampleDesc.Count= m_is4xMsaaState ? 4 : 1;
-	opaquePsoDesc.SampleDesc.Quality = m_is4xMsaaState ? (m_4xMsaaQuality - 1) : 0;
-	opaquePsoDesc.DSVFormat = m_depthStencilFormat;
-	
-
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&opaquePsoDesc,
-		IID_PPV_ARGS(&m_PSOs["Opaque"])));
-
-	//================蒙皮================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedPsoDesc = opaquePsoDesc;
-	skinnedPsoDesc.InputLayout = { m_skinInputLayout.data(),(UINT)m_skinInputLayout.size() };
-	skinnedPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["skinnedVS"]->GetBufferPointer()),
-		m_shaders["skinnedVS"]->GetBufferSize()
-	};
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&skinnedPsoDesc,
-		IID_PPV_ARGS(&m_PSOs["Skinned"])));
-
-	//================地形================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc = opaquePsoDesc;
-	terrainPsoDesc.InputLayout = 
-	{ 
-		m_terrainInputLayout.data(),
-		(UINT)m_terrainInputLayout.size() 
-	};
-	terrainPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["terrainVS"]->GetBufferPointer()),
-		m_shaders["terrainVS"]->GetBufferSize()
-	};
-	terrainPsoDesc.HS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["terrainHS"]->GetBufferPointer()),
-		m_shaders["terrainHS"]->GetBufferSize()
-	};
-	terrainPsoDesc.DS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["terrainDS"]->GetBufferPointer()),
-		m_shaders["terrainDS"]->GetBufferSize()
-	};
-	terrainPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["terrainPS"]->GetBufferPointer()),
-		m_shaders["terrainPS"]->GetBufferSize()
-	};
-	//patch
-	terrainPsoDesc.PrimitiveTopologyType =D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&terrainPsoDesc,
-		IID_PPV_ARGS(&m_PSOs["Terrain"])));
-
-	//================反射对象渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC ReflectOpaque = opaquePsoDesc;
-	ReflectOpaque.RasterizerState.FrontCounterClockwise = TRUE;   //三角形绕序翻转
-	ReflectOpaque.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&ReflectOpaque,
-		IID_PPV_ARGS(&m_PSOs["ReflectOpaque"])));
-
-	//================透明混合物体渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC tranBlendPsoDesc = opaquePsoDesc;
-	D3D12_RENDER_TARGET_BLEND_DESC transBlendDesc;//透明混合描述
-	transBlendDesc.BlendEnable = true;//开启透明混合
-	transBlendDesc.LogicOpEnable = false;//关闭逻辑运算符
-	transBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA; //源RGB混合因子用源alpha
-	transBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;//目标RGB混合因子用源alpha取反
-	transBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;     //RGB混合运算符加法 
-	transBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;  //源A混合因子为1
-	transBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;//目标A混合因子为0
-	transBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;//A混合运算符加法
-	transBlendDesc.LogicOp = D3D12_LOGIC_OP_NOOP;    //逻辑运算符,没用
-	transBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;//全写入后台缓冲区
-
-	// 默认关闭,用于代替AlphaTest,但要开启MASS
-	tranBlendPsoDesc.BlendState.AlphaToCoverageEnable = false;
-	// 可以为最多8个渲染目标设置不同的混合参数
-	tranBlendPsoDesc.BlendState.RenderTarget[0] = transBlendDesc;
-	tranBlendPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; //关闭深度写入
-	tranBlendPsoDesc.DepthStencilState.DepthEnable = true;
-	tranBlendPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&tranBlendPsoDesc,
-		IID_PPV_ARGS(&m_PSOs["Transparent"])));
-
-	//================镜面渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC mirrorPsoDesc = opaquePsoDesc;
-	mirrorPsoDesc.PS = { 
-		(BYTE*)m_shaders["mirrorPS"]->GetBufferPointer(),
-						 m_shaders["mirrorPS"]->GetBufferSize() 
-	};
-
-	mirrorPsoDesc.BlendState.RenderTarget[0] = transBlendDesc;//用透明混合的
-	mirrorPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; //关闭深度写入
-	mirrorPsoDesc.DepthStencilState.DepthEnable = true;
-	mirrorPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	mirrorPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&mirrorPsoDesc, IID_PPV_ARGS(&m_PSOs["Mirror"])));
-
-	//================动态水面渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC wavePsoDesc = mirrorPsoDesc;
-	wavePsoDesc.PS = {
-		(BYTE*)m_shaders["wavePS"]->GetBufferPointer(),
-						 m_shaders["wavePS"]->GetBufferSize()
-	};
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&wavePsoDesc, IID_PPV_ARGS(&m_PSOs["Wave"])));
-
-	//================开启AlphaTest渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC alphaTestedPsoDesc = opaquePsoDesc;
-	alphaTestedPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["alphaTestPS"]->GetBufferPointer()),
-		m_shaders["alphaTestPS"]->GetBufferSize()
-	};
-	alphaTestedPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&alphaTestedPsoDesc,
-		IID_PPV_ARGS(&m_PSOs["AlphaTest"])));
-
-	//================线框渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC wirePsoDesc = opaquePsoDesc;
-	wirePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&wirePsoDesc,
-		IID_PPV_ARGS(&m_PSOs["Wire"])));
-
-	//================天空盒渲染================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyBoxPsoDesc = opaquePsoDesc;
-	skyBoxPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
-	//深度测试<=保留 防止清理深度缓冲为1时,NDC归一化为1的值被剔除
-	skyBoxPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	skyBoxPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["skyBoxVS"]->GetBufferPointer()),
-		m_shaders["skyBoxVS"]->GetBufferSize()
-	};
-	skyBoxPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["skyBoxPS"]->GetBufferPointer()),
-		m_shaders["skyBoxPS"]->GetBufferSize()
-	};
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&skyBoxPsoDesc,
-		IID_PPV_ARGS(&m_PSOs["SkyBox"])));
-
-	//================调试层渲染PSO================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
-	debugPsoDesc.InputLayout = { m_colorInputLayout.data(),(UINT)m_colorInputLayout.size() };
-	debugPsoDesc.VS=
-	{
-		reinterpret_cast<BYTE*>(m_shaders["colorVS"]->GetBufferPointer()),
-		m_shaders["colorVS"]->GetBufferSize()
-	};
-	debugPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(m_shaders["colorPS"]->GetBufferPointer()),
-		m_shaders["colorPS"]->GetBufferSize()
-	};
-	debugPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//不剔除
-	debugPsoDesc.DepthStencilState.DepthEnable = FALSE;
-	debugPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	debugPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;//线
-
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&debugPsoDesc,
-		IID_PPV_ARGS(&m_PSOs["Debug"])));
-
+	BuildOpaquePso();       //不透明
+	BuildSkinnedPso();      //蒙皮
+	BuildTerrainPso();      //地形
+	BuildReflectPso();      //反射对象
+	BuildTransparentPso();  //透明混合物体
+	BuildMirrorPso();       //镜面
+	BuildWavePso();         //动态水面
+	BuildAlphaTestPso();    //开启AlphaTest
+	BuildWirePso();         //线框
+	BuildSkyBoxPso();       //天空盒
+	BuildDebugPso();        //调试层
 }
 
 void BoxGameApp::BuildScene()
@@ -1266,7 +1259,6 @@ void BoxGameApp::BuildScene()
 	// ======== 构建网格 ======== 
 	GeoGenerator gen;
 
-	//auto planeMirror = gen.CreatGrid(4, 6, 4, 6);           // 平面镜
 	auto water = gen.CreatGrid(500, 500, 50, 50);             // 水面
 	auto sphere = gen.CreatSphere(0.5f, 20, 20);              // 天空盒						           
 	auto box = gen.CreatBox(1, 1, 1, 1);                      // 基本几何体
@@ -1298,7 +1290,6 @@ void BoxGameApp::BuildScene()
 	m_scene->RegisterGeometry<Vertex>("geo_mesh1",   std::move(mesh1),   "sub_mesh1");   // 外部模型
 	m_scene->RegisterGeometry<Vertex>("geo_box",     std::move(box),     "sub_box");	 // 基本几何体
 	m_scene->RegisterGeometry<Vertex>("geo_sphere",  std::move(sphere),  "sub_sphere");	 // 天空盒
-	//m_scene->RegisterGeometry<Vertex>("geo_planeMirror", std::move(planeMirror), "sub_planeMirror"); // 平面镜
 	m_scene->RegisterGeometry<Vertex>("geo_water",   std::move(water),   "sub_water");   // 水面
 
 	// ======== 构建材质 ======== 
@@ -1354,7 +1345,7 @@ void BoxGameApp::BuildScene()
 	// ======== 构建场景对象 ======== 
 
 	//地形
-	m_scene->BuildTerrain(grassMat, { -50, -3, 3.0f }, 500, 50, 8, 8);
+	m_scene->BuildTerrain(grassMat, { -50, -3, 3.0f }, 500, 50, 62.5f);
 
 	//水面
 	m_scene->AddRenderObject("water", "geo_water", "sub_water", waterMat, RenderLayer::Wave)
