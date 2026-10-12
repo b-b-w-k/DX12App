@@ -1,2 +1,15 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# 显式标记二进制资源，避免被当作文本做换行符转换
+*.dds  binary
+*.DDS  binary
+*.bmp  binary
+*.fbx  binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.lib  binary
+*.dll  binary
+*.exe  binary
+*.pdb  binary

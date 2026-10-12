@@ -399,3 +399,20 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# ---- 本项目补充 ----
+
+# 构建中间目录与产物（MSBuild recipe / 增量链接 / 调试符号）
+temp/
+*.recipe
+*.idb
+*.ilk
+*.pdb
+
+# 贴图与模型素材：体积大且授权来源不统一，不纳入版本管理，请自行准备
+textures/
+models/
+
+# 着色器编译缓存
+*.cso
+*.dxil
