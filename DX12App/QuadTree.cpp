@@ -5,10 +5,20 @@
 
 using namespace DirectX;
 
+QuadTree::~QuadTree()
+{
+	
+	for (auto* n : m_allNodes)
+		delete n;
+	m_allNodes.clear();
+	m_root = nullptr;
+
+}
+
 void QuadTree::Build(XMFLOAT3 offset,
-					TerrainHeightField* heightField,
+					 TerrainHeightField* heightField,
 					 float totalSize, 
-					 float minLeafSize)
+					 int maxDepth)
 {
 
 	//清理旧数据
@@ -16,34 +26,26 @@ void QuadTree::Build(XMFLOAT3 offset,
 	m_allNodes.clear();
 	// 填充数据
 	m_totalSize = totalSize;
-	m_minLeafSize = minLeafSize;
 	m_offset = offset;
+	m_maxDepth = (std::max)(0, (std::min)(8, maxDepth));//0,8之间
+	//计算最小叶子边长
+	m_minLeafSize = m_totalSize / (1u << m_maxDepth);
 
-	//推导最大深度
-	const int kMaxDepth = 8;
-	if (m_minLeafSize > 0.0f && m_minLeafSize < totalSize)
-		m_maxDepth = (int)std::ceil(std::log2(totalSize / m_minLeafSize));
-	else
-		m_maxDepth = 0;//退化为0
-	m_maxDepth = (std::min)(m_maxDepth, kMaxDepth);
-
-
-	// ==== 创建根节点 ====	`	 
+	// ==== 创建根节点 ====	
 	m_root = new QuadNode();
 	m_allNodes.push_back(m_root);
 
-	// 采样地形高度(用局部坐标)
+	// 采样地形高度(用局部坐标采样)
 	float h = 0.0f;
 	if (heightField)
 		heightField->SampleHeight(0, 0, h);
 		
 	// 填充树节点结构体
 	float half = totalSize * 0.5f;
-	m_root->worldMin = { offset.x - half, offset.z - half };
+	m_root->worldMin = { offset.x - half, offset.z - half };//中心局部坐标是(0,0,0)
 	m_root->worldMax = { offset.x + half, offset.z + half };
 	m_root->center = { offset.x,  offset.y + h,  offset.z };// 存的是世界坐标的中心
 	m_root->depth = 0; //根节点深度为0
-	m_root->isLeaf = true;//默认当作是叶子节点(最后一层的节点),后续按情况改变
 
 	//使用显示栈遍历子节点
 	std::vector<QuadNode*>stack;
@@ -60,16 +62,11 @@ void QuadTree::Build(XMFLOAT3 offset,
 		stack.pop_back();
 
 		//判断节点是否为最终子节点
-		if (node->depth >= m_maxDepth)
-		{
-			//最终节点为叶子节点(true)无需展开
-			node->isLeaf = true;
-			continue;
-		}
+		if (node->depth >= m_maxDepth) continue;
 
 		// ==== 根据父节点构建4个子节点 ====
 		// 每个子节点边长都是父节点的一半
-		// 中间四个值
+		// 中间值
 		float mX = (node->worldMin.x + node->worldMax.x) * 0.5f;
 		float mZ = (node->worldMin.y + node->worldMax.y) * 0.5f;
 
@@ -99,28 +96,21 @@ void QuadTree::Build(XMFLOAT3 offset,
 			cNode->worldMin = { childMin[i][0], childMin[i][1] };
 			cNode->worldMax = { childMax[i][0], childMax[i][1] };
 
-			float localY = node->center.y - offset.y; //默认用父节点的局部高度
+			float cY = node->center.y - offset.y; //失败回退为父节点的世界高度
 			float cX = (cNode->worldMin.x + cNode->worldMax.x) * 0.5f;
 			float cZ = (cNode->worldMin.y + cNode->worldMax.y) * 0.5f;
 			//采样要用局部坐标
 			float localX = cX - offset.x;
 			float localZ = cZ - offset.z;
-			// 重新采样高度
+			// 采样子节点高度
 			if (heightField)
-				heightField->SampleHeight(localX, localZ, localY);
-			cNode->center ={ cX , offset.y+localY , cZ };// 存的是世界坐标的中心
-			cNode->depth = node->depth + 1;
-			cNode->isLeaf = true; //默认先设为true,有子节点时才改变
-
+				heightField->SampleHeight(localX, localZ, cY);
+			cNode->center ={ cX , cY + offset.y , cZ };// 存的是世界坐标的中心
+			cNode->depth = node->depth + 1;//深度加一
 			//存入子节点
 			node->children[i] = cNode;
-			//标记为不是叶子节点,更新剔除时需要展开
-			node->isLeaf = false;//只有存在子节点时才设为false
-
 			//将子节点压入栈中
 			stack.push_back(cNode);
-
-
 		}
 
 	}
@@ -136,10 +126,13 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 	if (!m_root)return;
 
 	//帧id自增
-	++m_frameID;
+	++m_frameID;//用于判别前沿节点
 	m_frontier.clear();//清理前沿节点
 
-	//投影阈值,小于这个值就不细分了
+	// 投影阈值,小于这个值就不细分了
+	// 通过patch在平面上所占的比例来决定LOD,而不是只按距离
+	// (2.0f*m_minLeafSize)为maxdepth-1时节点的边长
+	// projThreshold与占据屏幕的面积呈正比
 	const float projThreshold = (2.0f*m_minLeafSize)/(std::max)(maxDist,1.0f); 
 
 	//使用显示栈遍历子节点
@@ -160,64 +153,68 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 		bound.Extents =
 		{
 			(node->worldMax.x - node->worldMin.x) * 0.5f,
-			100.0f, //y方向高度不重要,只要大于地形高度即可
+			100.0f, //y方向高度不重要,只要大于地形高度,能包住节点即可
 			(node->worldMax.y - node->worldMin.y) * 0.5f
 		};
 
 		// 完全在视锥体外剔除,子节点也不需要遍历
 		if (!frustum->TestAABB(bound)) continue;
 
+		// 余下节点按投影阈值,判断是否需要展开
+
 		// 相机到节点中心的距离
 		float dx = eyePos.x - node->center.x;
-		float dz = eyePos.z - node->center.z;
 		float dy = eyePos.y - node->center.y;
+		float dz = eyePos.z - node->center.z;
 		float distSq = dx * dx + dz * dz + dy * dy;
 		float dist = sqrtf(distSq);
 
-		//判断是否需要展开
-		bool isNeedSubdivide = false;
-		if (!node->isLeaf && node->depth < m_maxDepth)
-		{
-			float nodeSize = node->worldMax.x - node->worldMin.x;
-			float projSize = nodeSize /( std::max)(dist,1.0f); //投影大小(tan角)
+		// 当前的投影屏幕占比(tan角)
+		float nodeSize = node->worldMax.x - node->worldMin.x;
+		float projSize = nodeSize / (std::max)(dist, 1.0f); //投影大小(tan角)
 
+		//判断是否需要展开
+		bool isNeedTess = false;
+		if (node->depth < m_maxDepth)
+		{
 			// 如果投影大于阈值,则需要展开
 			if(projSize > projThreshold)
-				isNeedSubdivide = true;
+				isNeedTess = true;
 		}
 
-		// 如果需要展开,将子节点压入栈中
-		if (isNeedSubdivide)
+		// 如果需要展开,将子节点压入栈中,继续进行细分判断
+		if (isNeedTess)
 		{
 			for (int i =0;i<4;++i)
 				stack.push_back(node->children[i]);
 		}
-		else
+		else //否则当前节点为前沿节点直接输出
 		{
-			// 计算细分因子,输出patch信息
-			float nodeSize = node->worldMax.x - node->worldMin.x;
-			const float tessGain = subMax / projThreshold;//每单位张角对应细分数量
-			float subFactor = tessGain * nodeSize / (std::max)(dist, 1.0f);
-			subFactor = (std::max)(subMin, (std::min)(subFactor, subMax));
+			// === 计算细分因子,输出patch信息 ===
 
-			//算出该节点每单位(最小叶子节点尺寸)分段数
-			const float segG = subFactor * m_minLeafSize / (std::max)(nodeSize, 1e-6f);
+			// 每单位张角对应细分数量(标准细分单位)
+			const float tessUnit = tessMax / projThreshold;
+			// 细分因子 =标准细分单位*当前的投影屏幕占比(tan角)
+			float tessFactor = tessUnit * projSize;
+			// 防止越界
+			tessFactor = (std::max)(tessMin, (std::min)(tessFactor, tessMax));
+
+			// 算出该节点分段数
+			// 每单位叶子边长段数 =总段数/单位数(有几个最小叶子边长)
+			const float segUnit = tessFactor / (nodeSize / m_minLeafSize);
 			//向上取整(偶数)
-			float segmentG = 2 * ceil(segG / 2);
-			node->segmentG = segmentG;//记录分段数
+			float segmentUnit = 2 * ceil(segUnit / 2);
+			node->segmentUnit = segmentUnit;//记录分段数
+
 			node->selectFrame = m_frameID;//记录为本帧前沿节点
 			m_frontier.push_back(node);//存储本前沿节点
 
 			TerrainPatch p;
-			//将世界坐标转回局部坐标
+			// 角点:将世界坐标转回局部坐标
 			p.corners[0] = { node->worldMin.x - m_offset.x,node->worldMin.y - m_offset.z };// 左上
 			p.corners[1] = { node->worldMax.x - m_offset.x,node->worldMin.y - m_offset.z };// 右上
 			p.corners[2] = { node->worldMax.x - m_offset.x,node->worldMax.y - m_offset.z };// 右下
 			p.corners[3] = { node->worldMin.x - m_offset.x,node->worldMax.y - m_offset.z };// 左下
-
-			p.center = { node->center.x - m_offset.x,
-						 node->center.y - m_offset.y,
-						 node->center.z - m_offset.z };
 
 			outPatches.push_back(p);
 		}
@@ -231,18 +228,21 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 		QuadNode* node = m_frontier[i];
 		const float nodeSize = node->worldMax.x - node->worldMin.x;
 		//边长能被分的段数
-		const float nSegment = (std::max)(1.0f, std::round(nodeSize / m_minLeafSize));
-		for (int e = 0; e < 4; ++e)
+		const float nSegment = (float)(1u << (m_maxDepth - node->depth));
+		for (int e = 0; e < 4; ++e)//四边分别比较
 		{
-			float gMin = node->segmentG;
+			float gMin = node->segmentUnit;
 			//获取邻居节点
 			QuadNode* neib = FindFrontierNode(EdgePoint(*node, e, offset));
 			if (neib)
 			{
 				const float neibSize = neib->worldMax.x - neib->worldMin.x;
+
+				gMin = (std::min)(gMin, neib->segmentUnit);
 				//只让粗邻居影响自己
 				if (neibSize >= nodeSize - 1e-3f)
-					gMin = (std::min)(gMin, neib->segmentG);
+					gMin = (std::min)(gMin, neib->segmentUnit);
+
 			}
 			outPatches[i].edgeTess[e] = nSegment * gMin;
 		}
@@ -253,9 +253,9 @@ void QuadTree::Update(const DirectX::XMFLOAT3& eyePos,
 QuadTree::QuadNode* QuadTree::FindFrontierNode(const DirectX::XMFLOAT2& p) const
 {
 	QuadNode* n = m_root;
-	while (n && n->selectFrame != m_frameID)//不是
+	while (n && n->selectFrame != m_frameID)//是本帧前沿节点就继续
 	{
-		if (n->isLeaf) return nullptr;//不是本帧前沿节点就继续下沉
+		if (n->depth>m_maxDepth) return nullptr;
 		const float mX = (n->worldMin.x + n->worldMax.x) * 0.5f;
 		const float mZ = (n->worldMin.y + n->worldMax.y) * 0.5f;
 		const int ci = (p.x >= mX ? 1 : 0) + (p.y >= mZ ? 2 : 0);//子节点索引

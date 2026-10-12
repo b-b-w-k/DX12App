@@ -64,8 +64,8 @@ Texture* Scene::RegisterTexture(const std::string& name,
 		m_terrHeightField = std::make_unique<TerrainHeightField>();
 
 		m_terrHeightField->LoadHeightData(std::move(heightData.GetNormalizePixels()),
-										  heightData.pixelWidth, 
-										  heightData.pixelHeight);
+			heightData.pixelWidth,
+			heightData.pixelHeight);
 	}
 
 	//将对应名字放入列表,用来创建描述符
@@ -197,7 +197,7 @@ void Scene::BuildTerrain(Material* mat,
 						 XMFLOAT3 center,
 						 float totalSize, 
 					     float heightScale,
-						 float minLeafSize)
+						 int maxDepth)
 {
 	m_terrainSize = totalSize;
 	m_terrainHeightScale = heightScale;
@@ -207,16 +207,50 @@ void Scene::BuildTerrain(Material* mat,
 	// 填充地形高度场
 	m_terrHeightField->Build(totalSize, totalSize, heightScale);
 
+	//将法线烘培进地形纹理
+	Texture* heightTex = GetTexture("terrainHeight");
+	if (heightTex)
+	{
+		std::vector<uint8_t> packedPixels =m_terrHeightField->PackedHeightNormalDate(4);
+		if (!packedPixels.empty())
+		{
+			//新建rgba8纹理
+			DDSTextureLoader loader;
+			Microsoft::WRL::ComPtr<ID3D12Resource> packedTex;
+			Microsoft::WRL::ComPtr<ID3D12Resource> packedUpload;
+
+			ThrowIfFailed(loader.CreateTextureFromPixels(
+				m_device,
+				m_cmdList,
+				packedPixels.data(),
+				m_terrHeightField->GetWidth(),
+				m_terrHeightField->GetHeight(),
+				DXGI_FORMAT_R16G16B16A16_UNORM,
+				packedTex,
+				packedUpload));
+
+			//旧的保存起来等命令队列执行完再释放
+			m_keepAliveResources.push_back(heightTex->resource);
+			m_keepAliveResources.push_back(heightTex->uploadHeap);
+
+			//替换原纹理
+			heightTex->resource = packedTex;
+			heightTex->uploadHeap = packedUpload;
+		}
+
+		
+	}
+
 	// 构建四叉树 
 	m_quadTree = std::make_unique<QuadTree>();
 	m_quadTree->Build(center,
 		m_terrHeightField.get(),
 		totalSize,
-		minLeafSize);
+		maxDepth);
 	// LOD参数
 	m_quadTree->maxDist = m_maxDist;
-	m_quadTree->subMax  = m_tessMax;
-	m_quadTree->subMin  = m_tessMin;
+	m_quadTree->tessMax  = m_tessMax;
+	m_quadTree->tessMin  = m_tessMin;
 
 	//注册地形几何体
 	GeoGenerator geo;
@@ -721,12 +755,16 @@ void Scene::UpdateBounds()
 				DirectX::BoundingBox::CreateMerged(merged, merged, worldBound);
 			}
 		}
-		//将合并完的包围盒交给渲染组件用于剔除
-		renderComp->bound_AABB = merged;
-		//创建OBB包围盒(根据AABB)
-		DirectX::BoundingOrientedBox::CreateFromBoundingBox(renderComp->bound_OBB, merged);
+		//没有任何有效子网格
+		if (first)continue;
 
-		
+		//包围盒统一存放进碰撞组件(渲染剔除与射线粗筛共用同一份数据)
+		auto* colComp = pNode->GetComponent<CollisionComponent>();
+		if (!colComp) colComp = pNode->AddComponent<CollisionComponent>();
+
+		//手动设置过的包围盒(空气墙/手调的盒)不被每帧自动刷新覆盖
+		if (!colComp->isBoundManual)
+			colComp->SetBoundFromWorldAABB(merged);
 	}
 }
 
@@ -990,15 +1028,18 @@ void Scene::CullFrustum()
 
 		
 
-		//天空盒,调试线不会被剔除
-		if (renderComp->neverCull)
+		//包围盒统一从碰撞组件取
+		auto* colComp = pNode->GetComponent<CollisionComponent>();
+
+		//天空盒,调试线不会被剔除;没有有效包围盒的也不剔除
+		if (renderComp->neverCull || !colComp || !colComp->isBoundValid)
 		{
 			renderComp->isCull = false;
 		}
 		else
 		{
-			// 用包围盒AABB测试
-			renderComp->isCull = !m_frustum.TestAABB(renderComp->bound_AABB);
+			// 用包围盒AABB测试(世界空间)
+			renderComp->isCull = !m_frustum.TestAABB(colComp->bound_AABB);
 		}
 		
 		++m_drawStats.totalObjects;

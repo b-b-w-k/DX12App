@@ -20,6 +20,81 @@ void TerrainHeightField::Build(float worldSizeX, float worldSizeY,
 
 }
 
+std::vector<uint8_t> TerrainHeightField::PackedHeightNormalDate(int bakeStep) const
+{
+	if (m_heightData.empty() || m_width < 2 || m_height < 2) return {};
+
+	//间隔和步长
+	const float cellX = m_worldSize.x / float(m_width - 1);
+	const float cellZ = m_worldSize.y / float(m_height - 1);
+	const int   step  = (bakeStep < 1) ? 1 : bakeStep;
+
+	//8字节(rgba16格式)
+	std::vector<uint8_t> out((size_t)m_width * m_height * 8);
+
+	//获取原始高度数据
+	auto GetH = [&](int x, int y)->float
+		{
+			x = (x < 0) ? 0 : ((x > (int)m_width - 1) ? (int)m_width - 1 : x);
+			y = (y < 0) ? 0 : ((y > (int)m_height - 1) ? (int)m_height - 1 : y);
+			return m_heightData[(size_t)y * m_width + x];
+		};
+
+	//转为UF16,将(0,1)->(0,65535)
+	auto ToU16 = [](float n) -> uint16_t
+		{
+			n = (std::min)(1.0f, (std::max)(0.0f, n));
+			return (uint16_t)lroundf(n * 65535.0f);
+		};
+
+	for (uint32_t y = 0; y < m_height; ++y)
+	{
+		for (uint32_t x = 0; x < m_width; ++x)
+		{
+			//乘上缩放,因为要算法线
+			const float hL = GetH((int)x - step, (int)y) * m_heightScale;
+			const float hR = GetH((int)x + step, (int)y) * m_heightScale;
+			const float hT = GetH((int)x, (int)y - step) * m_heightScale;
+			const float hB = GetH((int)x, (int)y + step) * m_heightScale;
+
+			// 梯度
+			const float dhdx = (hR - hL) / (2.0f * step * cellX);
+			const float dhdz = (hB - hT) / (2.0f * step * cellZ);
+
+			//法线
+			XMVECTOR n = XMVector3Normalize(XMVectorSet(-dhdx, 1.0f, -dhdz, 0.0f));
+			XMFLOAT3 nf;
+			XMStoreFloat3(&nf, n);
+
+			
+			
+			//转成uint16_t
+			const size_t o = ((size_t)y * m_width + x) * 8;//索引
+			const float  h = GetH((int)x, (int)y); //原始高度值
+
+			const uint16_t hr = ToU16(h);                     // 高度
+			const uint16_t hg = ToU16(nf.x * 0.5f + 0.5f);    // 法线 x
+			const uint16_t hb = ToU16(nf.z * 0.5f + 0.5f);    // 法线 z
+
+			//写入输出
+
+			// 高度
+			out[o + 0] = (uint8_t)( hr       & 0xFF);
+			out[o + 1] = (uint8_t)((hr >> 8) & 0xFF);
+			// 法线 x
+			out[o + 2] = (uint8_t)( hg       & 0xFF);
+			out[o + 3] = (uint8_t)((hg >> 8) & 0xFF);
+			// 法线 z
+			out[o + 4] = (uint8_t)( hb       & 0xFF);
+			out[o + 5] = (uint8_t)((hb >> 8) & 0xFF);
+			// 留空
+			out[o + 6] = 0xFF; 
+			out[o + 7] = 0xFF;
+		}
+	}
+	return out;
+}
+
 bool TerrainHeightField::SampleHeight(float LocalX, float LocalZ, float& outHeight) const
 {
 	if(!IsInRange(LocalX, LocalZ)) return false;

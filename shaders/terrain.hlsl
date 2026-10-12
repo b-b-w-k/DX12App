@@ -57,29 +57,27 @@ struct DSOut
     float2 UV       : TEXCOORD3;
 };
 
-
-// 辅助函数,计算地形高度
-float SampleHeight(float2 localXZ)
+// 辅助函数,采样高度法线
+float3 SampleHeightNormal(float2 localXZ, out float outHeight)
 {
+    //a:高度h
+    //g:法线x
+    //b:法线z
+    
     float2 uv = localXZ / gTerrainSize + 0.5f;
     uv = saturate(uv);
-    return gHeightMap.SampleLevel(gSamplerLinearClamp, uv,0).r * gTerrainScale;
-
-}
-
-// 辅助函数,计算地形法线
-float3 SampleNormal(float2 localXZ, float stepX, float stepZ)
-{
+    float4 packed = gHeightMap.SampleLevel(gSamplerLinearClamp, uv, 0);
+    //输出高度
+    outHeight = packed.r * gTerrainScale;
     
-    float hL = SampleHeight(localXZ - float2(stepX, 0));
-    float hR = SampleHeight(localXZ + float2(stepX, 0));
-    float hT = SampleHeight(localXZ - float2(0, stepZ));
-    float hB = SampleHeight(localXZ + float2(0, stepZ));
-    
-    float dhdx = (hR - hL) / (2.0f * stepX);
-    float dhdz = (hB - hT) / (2.0f * stepZ);
-    
-    return normalize(float3(-dhdx, 1.0f, -dhdz));
+    //计算法线
+    float nx = packed.g * 2.0f - 1.0f;
+    float nz = packed.b * 2.0f - 1.0f;
+    //通过xz反推y
+    float ny = sqrt(max(1.0f - nx * nx - nz * nz, 1e-4f));
+    return normalize(float3(nx, ny, nz));
+    //输出法线
+    return normalize(float3(nx, ny, nz));
 }
 
 // 顶点着色器只负责传递4个角点的XZ坐标
@@ -110,8 +108,8 @@ HSConstOut HSConstant(InputPatch<VertexOut, 4> patch)
     cout.EdgeTess[2] = max(e.y, 1.0f);
     cout.EdgeTess[3] = max(e.z, 1.0f);
     //2内部
-    float inner = min(min(cout.EdgeTess[0], cout.EdgeTess[1]),
-	                  min(cout.EdgeTess[2], cout.EdgeTess[3]));
+    float inner = max(max(cout.EdgeTess[0], cout.EdgeTess[1]),
+	                  max(cout.EdgeTess[2], cout.EdgeTess[3]));
     cout.InsideTess[0] = inner;
     cout.InsideTess[1] = inner;
     
@@ -145,28 +143,21 @@ DSOut DS(HSConstOut hsConst,
     float2 top = lerp(patch[0].corner3, patch[0].corner2, uv.x);
     float2 posXZ = lerp(bot, top, uv.y);
     
-    // 计算高度
-    float h = SampleHeight(posXZ);
+    // 采样高度法线
+    float h;
+    float3 nL = SampleHeightNormal(posXZ, h);
+    
     //位置
     float3 posL = float3(posXZ.x, h, posXZ.y);
-    
     dout.PosW = mul(float4(posL, 1.0f), gWorld).xyz;
-    
     //法线
-    float texelX = gTerrainSize.x / gTerrainTexSize.x;
-    float texelZ = gTerrainSize.y / gTerrainTexSize.y;
-    float2 patchSize = float2(length(patch[0].corner1 - patch[0].corner0), // 沿 X 的边长
-                              length(patch[0].corner3 - patch[0].corner0)); // 沿 Z 的边长
-    //
-    float stepX = max(patchSize.x / max(hsConst.InsideTess[0], 1.0f), texelX);
-    float stepZ = max(patchSize.y / max(hsConst.InsideTess[1], 1.0f), texelZ);
-    dout.NormalW = normalize(mul(float4(SampleNormal(posXZ, stepX, stepZ), 0.0f), gWorld).xyz);
-    //切线
-    float hL = SampleHeight(posXZ - float2(stepX, 0));
-    float hR = SampleHeight(posXZ + float2(stepX, 0));
-    float dhdx = (hR - hL) / (2.0f * stepX);
-    float3 TangentL = normalize(float3(1.0f, dhdx, 0.0f));
-    dout.TangentW = mul(float4(TangentL, 0.0f), gWorld).xyz;
+    dout.NormalW = normalize(mul(float4(nL, 0.0f), gWorld).xyz);
+    //切线(从法线反解切线)
+    float3 TangentL = cross(nL, float3(0.0f, 0.0f, 1.0f));
+    if (dot(TangentL, TangentL) < 1e-6f)
+        TangentL = cross(nL, float3(0.0f, 1.0f, 0.0f));
+    dout.TangentW = normalize(mul(float4(normalize(TangentL), 0.0f), gWorld).xyz);
+
     //UV
     dout.UV = posXZ / gTerrainSize + 0.5f;
     //裁剪空间位置
@@ -179,6 +170,7 @@ DSOut DS(HSConstOut hsConst,
 
 float4 PS(DSOut pin) : SV_Target
 {
+    
     //从材质结构体缓冲区中拿对应的材质数据
     MaterialData matData = gMaterialData[gMaterialIndex];
 

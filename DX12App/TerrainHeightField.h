@@ -17,6 +17,9 @@ public:
 	void Build(float worldSizeX,float worldSizeY,              // 世界地形宽高(要求宽高一致)
 			   float heightScale);                             // 世界地形高度缩放
 	
+	// 烘培高度图的法线数据,输出高度和法线xz
+	std::vector<uint8_t> PackedHeightNormalDate(int bakeStep = 2) const;
+	
 	// 采样高度(false越界)
 	bool SampleHeight(float loaclX, float loaclZ, float& outHeight)const;
 	//采样法线(false越界)

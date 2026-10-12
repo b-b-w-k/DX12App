@@ -153,7 +153,6 @@
     <ClCompile Include="AnimationClip.cpp">
       <Filter>渲染数据</Filter>
     </ClCompile>
-    <ClCompile Include="ControlComponent.cpp" />
     <ClCompile Include="SkeletonComponent.cpp">
       <Filter>组件</Filter>
     </ClCompile>
@@ -162,6 +161,9 @@
     </ClCompile>
     <ClCompile Include="QuadTree.cpp">
       <Filter>四叉树</Filter>
+    </ClCompile>
+    <ClCompile Include="ControlComponent.cpp">
+      <Filter>组件</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

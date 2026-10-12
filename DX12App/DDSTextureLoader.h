@@ -32,27 +32,38 @@ public:
 
 		// 是否有纹素
 		bool isPixels() { return !pixels.empty(); }
-		//获取纹素(仅限R8,单通道8位)
-		uint8_t GetPixel(UINT x, UINT y) const
-		{
-			if (x >= pixelWidth || y >= pixelHeight) return 0;
-			return pixels[y * pixelWidth + x];
-		}
-		//获取归一化纹素(仅限R8,单通道8位)
-		float GetNormalizePixel(UINT x, UINT y) const
-		{
-			return GetPixel(x, y) / 255.0f;
-		}
+
 		std::vector<float> GetNormalizePixels() const
 		{
-			if (pixels.empty() || bytesPerPixel == 0)
-				return {};
+			std::vector<float> out;
+			if (pixels.empty() || bytesPerPixel == 0) return out;
 			const size_t count = (size_t)pixelWidth * pixelHeight;
-			std::vector<float> out(count);
+			out.resize(count, 0.0f);
 
 			const uint8_t* p = pixels.data();
-			for (size_t i = 0; i < count; ++i)
-				out[i] = p[i] / 255.0f;
+
+			//判断格式
+			if (bytesPerPixel == 1) // R8_UNORM
+			{
+				for (size_t i = 0; i < count; ++i) 
+					out[i] = p[i] / 255.0f;
+			}
+			else if (bytesPerPixel == 2) // R16_UNORM（DDS 小端）
+			{
+				for (size_t i = 0; i < count; ++i)
+				{
+					//将后八位(高位)*256+前8位(低位)得到16位整型表示
+					const uint16_t v = (uint16_t)(p[i * 2] + (p[i * 2 + 1] * 256));
+					//归到0-1之间
+					out[i] = v / 65535.0f;
+				}
+			}
+			else if (bytesPerPixel == 4) // R8G8B8A8/B8G8R8A8：取第 0 字节
+			{
+				for (size_t i = 0; i < count; ++i) 
+					out[i] = p[i * 4 + 0] / 255.0f;
+			}
+
 			return out;
 
 		}
@@ -78,7 +89,15 @@ public:
 										 _In_	   size_t maxsize = 0,
 										 _Out_opt_ DirectX::DDS_ALPHA_MODE * alphaMode = nullptr);
 
-
+	//将纹理上传到GPU ,区别:纹理数据来源为从一维容器中获取的纹素
+	HRESULT CreateTextureFromPixels(_In_  ID3D12Device* device,
+									_In_  ID3D12GraphicsCommandList* cmdList,
+									_In_  const uint8_t* pixels,
+									_In_  UINT width,
+									_In_  UINT height,
+									_In_  DXGI_FORMAT format,
+									_Out_ Microsoft::WRL::ComPtr<ID3D12Resource>& texture,
+									_Out_ Microsoft::WRL::ComPtr<ID3D12Resource>& textureUploadHeap);
 private:
 	//将Subresource数组中的数据拷贝进DDSTextureResult::pixels中
 	void CopyDataFromSubresource(

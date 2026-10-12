@@ -124,6 +124,79 @@ HRESULT DDSTextureLoader::CreateDDSTextureFromFile12Ex( _In_	   ID3D12Device* de
 
 }
 
+HRESULT DDSTextureLoader::CreateTextureFromPixels(ID3D12Device* device,
+                                                  ID3D12GraphicsCommandList* cmdList,
+                                                  const uint8_t* pixels, 
+                                                  UINT width, 
+                                                  UINT height, 
+                                                  DXGI_FORMAT format, 
+                                                  Microsoft::WRL::ComPtr<ID3D12Resource>& texture, 
+                                                  Microsoft::WRL::ComPtr<ID3D12Resource>& textureUploadHeap)
+{
+	//清理输出
+	texture.Reset();
+	textureUploadHeap.Reset();
+
+	if (!device || !cmdList || !pixels) return E_INVALIDARG;
+	if (width == 0 || height == 0) return E_INVALIDARG;
+
+    //获取每像素字节数
+	const UINT bytesPerPixel = DDSTextureResult::GetBytesPerPixel(format);
+	if (bytesPerPixel == 0) return E_INVALIDARG;
+
+    const UINT rowPitch = (UINT)(width * bytesPerPixel + 255) & ~255;
+
+    //将数据按256字节对齐打包
+    std::vector<uint8_t> packed;
+    packed.resize(rowPitch * height);
+    for (UINT y = 0; y < height; ++y)
+    {
+        memcpy(&packed[(size_t)y * rowPitch],               //拷贝目标(偏移256对齐的行距)
+               pixels + (size_t)y * width * bytesPerPixel,  //拷贝源(源行距)
+               (size_t)width * bytesPerPixel);              //拷贝大小(行距大小)
+    }
+
+    //创建纹理资源和默认堆
+	auto texDesc = CD3DX12_RESOURCE_DESC::Tex2D(format, width, height, 1, 1);
+	auto defaultHeapDesc = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+
+	HRESULT hr = device->CreateCommittedResource(
+		&defaultHeapDesc, D3D12_HEAP_FLAG_NONE, &texDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+		IID_PPV_ARGS(texture.GetAddressOf()));
+	if (FAILED(hr)) return hr;
+
+    //上传堆
+	const UINT uploadSize = (UINT)GetRequiredIntermediateSize(texture.Get(), 0, 1);
+
+	auto uploadHeapDesc = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+	auto uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadSize);
+
+	hr = device->CreateCommittedResource(
+		&uploadHeapDesc, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+		IID_PPV_ARGS(textureUploadHeap.GetAddressOf()));
+	if (FAILED(hr)) return hr;
+
+    //子资源描述
+	D3D12_SUBRESOURCE_DATA subresource = {};
+	subresource.pData = packed.data();
+	subresource.RowPitch = rowPitch;
+	subresource.SlicePitch = (UINT)((size_t)rowPitch * height);
+
+    //拷贝资源
+	UpdateSubresources(cmdList, texture.Get(), textureUploadHeap.Get(), 0, 0, 1, &subresource);
+
+	//状态转换:拷贝目标->像素着色器资源(读)
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		texture.Get(),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	cmdList->ResourceBarrier(1, &barrier);
+
+	return S_OK;
+}
+
 void DDSTextureLoader::CopyDataFromSubresource( const D3D12_SUBRESOURCE_DATA& src,
                                                 UINT width, 
                                                 UINT height, 
@@ -176,6 +249,7 @@ UINT DDSTextureLoader::DDSTextureResult::GetBytesPerPixel(DXGI_FORMAT fmt)
     case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
     case DXGI_FORMAT_B8G8R8A8_UNORM:
     case DXGI_FORMAT_R32_FLOAT:              return 4;
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
     case DXGI_FORMAT_R16G16B16A16_FLOAT:
     case DXGI_FORMAT_R32G32_FLOAT:           return 8;
     case DXGI_FORMAT_R32G32B32A32_FLOAT:     return 16;

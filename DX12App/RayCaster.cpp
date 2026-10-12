@@ -159,6 +159,8 @@ bool RayCaster::IntersectNode(const Ray& ray, Node* node,
 	if (!col) return false;
     // 不支持碰撞的跳过
     if (col->collisionType == ECollisionType::None)return false;
+    // 还没有有效包围盒的跳过(避免拿零初始化盒做粗筛)
+    if (!col->isBoundValid) return false;
 
     //射线信息
 	XMVECTOR origin = XMLoadFloat3(&ray.origin);
@@ -180,7 +182,10 @@ bool RayCaster::IntersectNode(const Ray& ray, Node* node,
 		if (!col->bound_AABB.Intersects(origin, dir, dist)) return false;
 		tShape = dist;
     }
-    if (tShape < tMin || tShape > tMax) return false;//有相交但距离不符合也跳过
+    // 射线起点在包围盒内部时,Intersects返回的距离是0
+    // 这时不能用它当三角形细筛的上限,否则检测范围变成[0,0],永远筛不到东西
+    const bool originInside = (tShape <= 0.0f);
+    if (!originInside && (tShape < tMin || tShape > tMax)) return false;//有相交但距离不符合也跳过
 
     // 三角形精细筛选
     if (col->collisionType == ECollisionType::Triangle)
@@ -206,7 +211,7 @@ bool RayCaster::IntersectNode(const Ray& ray, Node* node,
         //用局部射线与三角形检测
 
         bool  hit = false;
-        float nearest = tShape * dirScale;
+        float nearest = (originInside ? tMax : tShape) * dirScale;
         for (auto& sub : renderComp->GetSubmeshs())
         {
             if (!sub.meshGeo)continue;

@@ -18,6 +18,10 @@ CollisionComponent& CollisionComponent::SetBoundFromCenter(const DirectX::XMFLOA
 	float ez = extents.z;
 	bound_Spheres.Radius = sqrtf(ex * ex + ey * ey + ez * ez);
 
+	//手动设置:标记有效,并且不允许每帧自动刷新覆盖
+	isBoundValid  = true;
+	isBoundManual = true;
+
 	return *this;
 }
 
@@ -37,4 +41,23 @@ CollisionComponent& CollisionComponent::SetBoundFromMinMax(const DirectX::XMFLOA
 	};
 	//调中心点加距离的方法
 	return SetBoundFromCenter(center, extents);
+}
+
+void CollisionComponent::SetBoundFromWorldAABB(const DirectX::BoundingBox& worldAABB)
+{
+	//世界空间AABB直接取用
+	bound_AABB = worldAABB;
+
+	//构建OBB
+	DirectX::BoundingOrientedBox::CreateFromBoundingBox(bound_OBB, bound_AABB);
+
+	//构建包围球
+	bound_Spheres.Center = worldAABB.Center;
+	float ex = worldAABB.Extents.x;
+	float ey = worldAABB.Extents.y;
+	float ez = worldAABB.Extents.z;
+	bound_Spheres.Radius = sqrtf(ex * ex + ey * ey + ez * ez);
+
+	//自动刷新:只标有效,不动 isBoundManual
+	isBoundValid = true;
 }

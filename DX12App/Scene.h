@@ -123,7 +123,7 @@ public:
                       DirectX::XMFLOAT3 center,      // 地形中心点(偏移)
                       float totalSize,               // 地形边长
                       float heightScale,             // 高度缩放
-                      float minLeafSize);            // 最大叶子的世界边长(
+                      int maxDepth);                 // 最大叶子的世界边长
 
 
     // ====== 添加场景对象 ======
@@ -273,16 +273,17 @@ private:
     std::unordered_map<std::string, std::unique_ptr<AnimationClip>> m_animateClips; // 所有骨架数据
 
 	//地形数据
-    std::unique_ptr<TerrainHeightField> m_terrHeightField;        // 地形高度场(用于采样地形高度图)
-    std::vector<TerrainPatch> m_visiblePatches;                   // 可见patch数据
-    Node* m_terrainNode = nullptr;                                // 地形节点
-    float m_terrainSize = 0;                                      // 高度图大小
-    float m_terrainHeightScale = 0;                               // 高度图y缩放
+    std::unique_ptr<TerrainHeightField> m_terrHeightField;                   // 地形高度场(用于采样地形高度图)
+    std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_keepAliveResources;// 用于保持R8纹理在命令列表执行完才释放
+    std::vector<TerrainPatch> m_visiblePatches;                              // 可见patch数据
+    Node* m_terrainNode = nullptr;                                           // 地形节点
+    float m_terrainSize = 0;                                                 // 高度图大小
+    float m_terrainHeightScale = 0;                                          // 高度图y缩放
 	// 四叉树参数
-    std::unique_ptr<QuadTree> m_quadTree;                         // 四叉树,用于剔除不可见Patch
-	float m_tessMin = 8.0f;	                                      // 最远时细分因子
-	float m_tessMax = 32.0f;	                                  // 最近时细分因子
-	float m_maxDist = 100.0f;	                                  // 最大细分距离(超过这个距离用tessMin)
+    std::unique_ptr<QuadTree> m_quadTree;                                    // 四叉树,用于剔除不可见Patch
+	float m_tessMin = 8.0f;	                                                 // 最远时细分因子
+	float m_tessMax = 32.0f;	                                             // 最近时细分因子
+	float m_maxDist = 100.0f;	                                             // 最大细分距离(超过这个距离用tessMin)
 
     // 场景对象(逻辑层,组织对象)
     std::vector<std::unique_ptr<Node>> m_nodes;                   // 所有节点(拥有者)

@@ -466,16 +466,36 @@ void BoxGameApp::DrawD2DText()
 void BoxGameApp::DrawDebugLine()
 {
 	m_debugRenderer->Begin();
-	for (auto* obj : m_scene->GetRenderObjects())
+	//包围盒统一从碰撞组件取(没有有效盒的不画)
+	auto drawBound = [this](Node* obj)
 	{
-		auto* renderComp = obj->GetComponent<RenderComponent>();
-		if (!renderComp)continue;
+		if (!obj)return;
+		auto* colComp = obj->GetComponent<CollisionComponent>();
+		if (!colComp || !colComp->isBoundValid)return;
 
 		if (m_debugRenderer->isDebug_AABB)
-			m_debugRenderer->AddAABB(renderComp->bound_AABB, XMFLOAT4(0, 1, 0, 1));
+			m_debugRenderer->AddAABB(colComp->bound_AABB, XMFLOAT4(0, 1, 0, 1));
 		if (m_debugRenderer->isDebug_OBB)
-			m_debugRenderer->AddOBB(renderComp->bound_OBB, XMFLOAT4(1, 0, 0, 1));
+			m_debugRenderer->AddOBB(colComp->bound_OBB, XMFLOAT4(1, 0, 0, 1));
+	};
+
+	//渲染对象(每帧自动合并出来的网格包围盒)
+	std::vector<Node*> drawnBounds;
+	for (auto* obj : m_scene->GetRenderObjects())
+	{
+		drawBound(obj);
+		drawnBounds.push_back(obj);
 	}
+	//碰撞节点(空气墙等):跳过上面已经画过的,避免重复
+	for (auto* obj : m_scene->GetCollisionNodes())
+	{
+		bool already = false;
+		for (auto* d : drawnBounds)
+			if (d == obj) { already = true; break; }
+		if (already)continue;
+		drawBound(obj);
+	}
+	//视锥体
 	if (m_debugRenderer->isDdebug_Frustum)
 	{
 		if (m_debugRenderer->isLock_Frustum)
@@ -652,7 +672,6 @@ void BoxGameApp::UpdateMainPassCB(float dt)
 	}
 
 }
-
 
 void BoxGameApp::GameUpdate()
 {
@@ -1027,7 +1046,6 @@ void BoxGameApp::BuildShadersAndInputLayout()
 
 }
 
-
 D3D12_SHADER_BYTECODE BoxGameApp::Shader(const char* name) const
 {
 	auto it = m_shaders.find(name);
@@ -1084,7 +1102,6 @@ void BoxGameApp::CreatePso(const char* name, const D3D12_GRAPHICS_PIPELINE_STATE
 		&desc,
 		IID_PPV_ARGS(&m_PSOs[name])));
 }
-
 
 void BoxGameApp::BuildOpaquePso()
 {
@@ -1243,18 +1260,12 @@ void BoxGameApp::BuildScene()
 																				          
 	m_scene->RegisterTexture("skyBox_tex",    L"../textures/skyBox.dds", true);           // 天空_cube
 
-	m_scene->RegisterTexture("terrainHeight", L"../textures/terrain_hei.dds", false,true);// 地形高度
+	m_scene->RegisterTexture("terrainHeight", L"../textures/terrain_hei_U16.dds", false,true);// 地形高度
 
 	m_scene->RegisterTexture("water_low_nor", L"../textures/water_low_nor.dds");		  // 水低波_nor
 	m_scene->RegisterTexture("water_high_nor",L"../textures/water_high_nor.dds");		  // 水高波_nor
 
-	// 构建SRV堆
-	m_scene->SaveSRVToHeap(
-		m_d3dDevice.Get(),
-		m_globalSrvHeap.Get(),
-		m_srvSlotCount, 
-		m_cbvSrvDescSize);
-	m_srvSlotCount += m_scene->GetSRVCount();
+	
 
 	// ======== 构建网格 ======== 
 	GeoGenerator gen;
@@ -1345,7 +1356,7 @@ void BoxGameApp::BuildScene()
 	// ======== 构建场景对象 ======== 
 
 	//地形
-	m_scene->BuildTerrain(grassMat, { -50, -3, 3.0f }, 500, 50, 62.5f);
+	m_scene->BuildTerrain(grassMat, { -50, -3, 3.0f }, 500, 50, 3);
 
 	//水面
 	m_scene->AddRenderObject("water", "geo_water", "sub_water", waterMat, RenderLayer::Wave)
@@ -1401,6 +1412,14 @@ void BoxGameApp::BuildScene()
 	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 
 	//obj_player->AddComponent<ControlComponent>(&m_camera,m_rayCaster.get(),m_inputManage.get());
+
+	// 构建SRV堆
+	m_scene->SaveSRVToHeap(
+		m_d3dDevice.Get(),
+		m_globalSrvHeap.Get(),
+		m_srvSlotCount,
+		m_cbvSrvDescSize);
+	m_srvSlotCount += m_scene->GetSRVCount();
 }
 
 void BoxGameApp::BuildReflection()

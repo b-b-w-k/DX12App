@@ -73,9 +73,6 @@ public:
 	bool isCull    = true;                   // 是否剔除
 	bool isVisible = true;                   // 是否可见(暂时隐藏)
 
-	// 包围盒数据,用于渲染剔除
-	DirectX::BoundingBox		 bound_AABB; // AABB包围盒
-	DirectX::BoundingOrientedBox bound_OBB;  // OBB包围盒
 private:
 	std::deque<SubmeshDraw> m_submeshes;     // 子网格渲染项(双端队列,扩容指针不失效)
 };
