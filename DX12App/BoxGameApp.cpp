@@ -466,35 +466,27 @@ void BoxGameApp::DrawD2DText()
 void BoxGameApp::DrawDebugLine()
 {
 	m_debugRenderer->Begin();
-	//包围盒统一从碰撞组件取(没有有效盒的不画)
-	auto drawBound = [this](Node* obj)
+	//包围盒统一从碰撞组件取
+	auto AddBounds = [this](Node* obj)
 	{
 		if (!obj)return;
 		auto* colComp = obj->GetComponent<CollisionComponent>();
-		if (!colComp || !colComp->isBoundValid)return;
-
+		if (!colComp)return;
+		if (!colComp->isUseBound)return;
 		if (m_debugRenderer->isDebug_AABB)
 			m_debugRenderer->AddAABB(colComp->bound_AABB, XMFLOAT4(0, 1, 0, 1));
 		if (m_debugRenderer->isDebug_OBB)
 			m_debugRenderer->AddOBB(colComp->bound_OBB, XMFLOAT4(1, 0, 0, 1));
 	};
 
-	//渲染对象(每帧自动合并出来的网格包围盒)
+	//碰撞对象
 	std::vector<Node*> drawnBounds;
-	for (auto* obj : m_scene->GetRenderObjects())
-	{
-		drawBound(obj);
-		drawnBounds.push_back(obj);
-	}
-	//碰撞节点(空气墙等):跳过上面已经画过的,避免重复
 	for (auto* obj : m_scene->GetCollisionNodes())
 	{
-		bool already = false;
-		for (auto* d : drawnBounds)
-			if (d == obj) { already = true; break; }
-		if (already)continue;
-		drawBound(obj);
+		AddBounds(obj);
+		drawnBounds.push_back(obj);
 	}
+
 	//视锥体
 	if (m_debugRenderer->isDdebug_Frustum)
 	{
@@ -513,9 +505,8 @@ void BoxGameApp::DrawDebugLine()
 				m_debugRenderer->AddFrustum(corners, XMFLOAT4(1, 1, 0, 1));
 			}
 		}
-		
-		
 	}
+	//绘制
 	m_debugRenderer->Draw(m_commandList.Get(), m_PSOs["Debug"].Get());
 }
 
@@ -1238,35 +1229,35 @@ void BoxGameApp::BuildPSO()
 
 void BoxGameApp::BuildScene()
 {
-
+#pragma region 纹理
 	// ======== 构建纹理 ========
-	m_scene->RegisterTexture("brick_diff",    L"../textures/brick_diff.dds");             // 砖_diff
-	m_scene->RegisterTexture("brick_nor",     L"../textures/brick_nor.dds");              // 砖_nor
-																				          
-	m_scene->RegisterTexture("grass_diff",    L"../textures/grass_diff.dds");             // 草地1_diff
-	m_scene->RegisterTexture("grass_nor",     L"../textures/grass_nor.dds");              // 草地1_nor
-											  									          
-	m_scene->RegisterTexture("shazi_diff",    L"../textures/shazi_diff.dds");             // 草地2_diff
-	m_scene->RegisterTexture("shazi_nor",     L"../textures/shazi_nor.dds");              // 草地2_nor
-																				          
-	m_scene->RegisterTexture("shashi_diff",   L"../textures/shashi_diff.dds");            // 草地3_diff
-	m_scene->RegisterTexture("shashi_nor",    L"../textures/shashi_nor.dds");             // 草地3_nor
-																				          
-	m_scene->RegisterTexture("rock_diff",     L"../textures/rock_diff.dds");              // 草地4_diff
-	m_scene->RegisterTexture("rock_nor",      L"../textures/rock_nor.dds");               // 草地4_nor
-																				          
-	m_scene->RegisterTexture("grass1_diff",   L"../textures/grass1_diff.dds");            // 草地5_diff
-	m_scene->RegisterTexture("grass1_nor",    L"../textures/grass1_nor.dds");             // 草地5_nor
-																				          
-	m_scene->RegisterTexture("skyBox_tex",    L"../textures/skyBox.dds", true);           // 天空_cube
+	m_scene->RegisterTexture("brick_diff", L"../textures/brick_diff.dds");             // 砖_diff
+	m_scene->RegisterTexture("brick_nor", L"../textures/brick_nor.dds");              // 砖_nor
 
-	m_scene->RegisterTexture("terrainHeight", L"../textures/terrain_hei_U16.dds", false,true);// 地形高度
+	m_scene->RegisterTexture("grass_diff", L"../textures/grass_diff.dds");             // 草地1_diff
+	m_scene->RegisterTexture("grass_nor", L"../textures/grass_nor.dds");              // 草地1_nor
+
+	m_scene->RegisterTexture("shazi_diff", L"../textures/shazi_diff.dds");             // 草地2_diff
+	m_scene->RegisterTexture("shazi_nor", L"../textures/shazi_nor.dds");              // 草地2_nor
+
+	m_scene->RegisterTexture("shashi_diff", L"../textures/shashi_diff.dds");            // 草地3_diff
+	m_scene->RegisterTexture("shashi_nor", L"../textures/shashi_nor.dds");             // 草地3_nor
+
+	m_scene->RegisterTexture("rock_diff", L"../textures/rock_diff.dds");              // 草地4_diff
+	m_scene->RegisterTexture("rock_nor", L"../textures/rock_nor.dds");               // 草地4_nor
+
+	m_scene->RegisterTexture("grass1_diff", L"../textures/grass1_diff.dds");            // 草地5_diff
+	m_scene->RegisterTexture("grass1_nor", L"../textures/grass1_nor.dds");             // 草地5_nor
+
+	m_scene->RegisterTexture("skyBox_tex", L"../textures/skyBox.dds", true);           // 天空_cube
+
+	m_scene->RegisterTexture("terrainHeight", L"../textures/terrain_hei_U16.dds", false, true);// 地形高度
 
 	m_scene->RegisterTexture("water_low_nor", L"../textures/water_low_nor.dds");		  // 水低波_nor
-	m_scene->RegisterTexture("water_high_nor",L"../textures/water_high_nor.dds");		  // 水高波_nor
-
+	m_scene->RegisterTexture("water_high_nor", L"../textures/water_high_nor.dds");		  // 水高波_nor
+#pragma endregion
 	
-
+#pragma region 网格
 	// ======== 构建网格 ======== 
 	GeoGenerator gen;
 
@@ -1275,7 +1266,7 @@ void BoxGameApp::BuildScene()
 	auto box = gen.CreatBox(1, 1, 1, 1);                      // 基本几何体
 	auto mesh1 = gen.LoadMesh("../models/AK-H.fbx");          // 外部模型 
 	auto skinnedData = gen.LoadSkinnedMesh("../models/Start Walking.fbx");
-	
+
 	std::string animateName;
 	for (auto& pair : skinnedData.clips)
 	{
@@ -1295,20 +1286,22 @@ void BoxGameApp::BuildScene()
 	{
 		submeshNames.push_back(mesh.first);
 	}
-	
+
 	m_scene->RegisterGeometry<SkeletonVertex>("geo_player", std::move(skinnedData.meshes), EVertexLayout::Skeleton);
 
-	m_scene->RegisterGeometry<Vertex>("geo_mesh1",   std::move(mesh1),   "sub_mesh1");   // 外部模型
-	m_scene->RegisterGeometry<Vertex>("geo_box",     std::move(box),     "sub_box");	 // 基本几何体
-	m_scene->RegisterGeometry<Vertex>("geo_sphere",  std::move(sphere),  "sub_sphere");	 // 天空盒
-	m_scene->RegisterGeometry<Vertex>("geo_water",   std::move(water),   "sub_water");   // 水面
+	m_scene->RegisterGeometry<Vertex>("geo_mesh1", std::move(mesh1), "sub_mesh1");   // 外部模型
+	m_scene->RegisterGeometry<Vertex>("geo_box", std::move(box), "sub_box");	 // 基本几何体
+	m_scene->RegisterGeometry<Vertex>("geo_sphere", std::move(sphere), "sub_sphere");	 // 天空盒
+	m_scene->RegisterGeometry<Vertex>("geo_water", std::move(water), "sub_water");   // 水面
+#pragma endregion
 
+#pragma region 材质
 	// ======== 构建材质 ======== 
 
 	// 无贴图
 	auto* defaultMat = m_scene->RegisterMaterial(
 		"mat_default", { 1,1,1,1 }, { 0.08f,0.08f,0.08f }, 0.8f);             // 标准漫反射材质
-	auto* TransparentMat = m_scene->RegisterMaterial(					    
+	auto* TransparentMat = m_scene->RegisterMaterial(
 		"mat_transparent", { 1,1,1,0.3 }, { 0.04f, 0.04f, 0.04f }, 0.5f);     // 透明材质
 	auto* plasticMat = m_scene->RegisterMaterial(
 		"mat_plastic", { 0.8f, 0.8f, 0.85f, 1.0f }, { 0.4f,0.4f,0.4f }, 0.1f);// 塑料材质
@@ -1317,20 +1310,20 @@ void BoxGameApp::BuildScene()
 
 	// *测试*(模型有两个材质)
 	auto* orangeColor = m_scene->RegisterMaterial(
-		skinnedData.materialNames[0], {1.0f, 0.647f, 0.0f, 1.0f}, {0.08f,0.08f,0.08f}, 0.8f);// 标准漫反射材质
+		skinnedData.materialNames[0], { 1.0f, 0.647f, 0.0f, 1.0f }, { 0.08f,0.08f,0.08f }, 0.8f);// 标准漫反射材质
 	auto* whiteColor = m_scene->RegisterMaterial(
-		skinnedData.materialNames[1], {1,1,1,1}, {0.08f,0.08f,0.08f}, 0.8f);             // 标准漫反射材质
+		skinnedData.materialNames[1], { 1,1,1,1 }, { 0.08f,0.08f,0.08f }, 0.8f);             // 标准漫反射材质
 
 	// 有贴图
-	auto* brickMat = m_scene->RegisterMaterial(							    
-		"mat_brick", { 1,1,1,1 }, { 0.04f,0.04f,0.04f }, 0.8f, 
-		{ 
+	auto* brickMat = m_scene->RegisterMaterial(
+		"mat_brick", { 1,1,1,1 }, { 0.04f,0.04f,0.04f }, 0.8f,
+		{
 			{ "brick_diff", "brick_nor" ,{1,1},{0,0}, 0.0f,1.0f }
-		}              
-		); // 砖墙纹理材质,1层纹理
+		}
+	); // 砖墙纹理材质,1层纹理
 
-	auto* grassMat = m_scene->RegisterMaterial(							    
-		"mat_grass", { 1,1,1,1 }, { 0.02f,0.02f,0.02f }, 1.0f,              
+	auto* grassMat = m_scene->RegisterMaterial(
+		"mat_grass", { 1,1,1,1 }, { 0.02f,0.02f,0.02f }, 1.0f,
 		{
 			{ "shashi_diff", "shashi_nor" ,{0.06f, 0.06f},{0,0},1.0f,  0.4f },
 			{ "shazi_diff", "shazi_nor" ,  {0.05f, 0.05f},{0,0},1.0f,  0.2f },
@@ -1338,21 +1331,22 @@ void BoxGameApp::BuildScene()
 			{ "grass1_diff", "grass1_nor" ,{0.12f, 0.12f},{0,0},1.0f,  0.1f }
 		}); // 地形纹理材质
 
-	auto* skyMat = m_scene->RegisterMaterial(							    
-		"mat_skyBox", { 1,1,1,1 }, { 0.04f,0.04f,0.04f }, 0.8f,             
+	auto* skyMat = m_scene->RegisterMaterial(
+		"mat_skyBox", { 1,1,1,1 }, { 0.04f,0.04f,0.04f }, 0.8f,
 		{
 			{ "skyBox_tex", "" ,{20,20},{0,0}, 0.0f,1.0f }
 		}); // 天空纹理材质
-	
+
 
 	auto* waterMat = m_scene->RegisterMaterial(
-		"water", { 0.08f, 0.22f, 0.28f, 0.40f }, { 0.02f,0.02f,0.02f }, 0.05f, 
+		"water", { 0.08f, 0.22f, 0.28f, 0.40f }, { 0.02f,0.02f,0.02f }, 0.05f,
 		{
 			{ "", "water_low_nor" ,{7,10},{0.03f,  0.02f}, 0.0f,1.0f },
 			{ "", "water_high_nor" ,{13,10},{-0.02f,  0.05f}, 0.0f,0.8f }
 		});// 水面纹理材质
-	
+#pragma endregion
 
+#pragma region 场景对象
 	// ======== 构建场景对象 ======== 
 
 	//地形
@@ -1360,13 +1354,13 @@ void BoxGameApp::BuildScene()
 
 	//水面
 	m_scene->AddRenderObject("water", "geo_water", "sub_water", waterMat, RenderLayer::Wave)
-		   ->SetLocalTransform({ -50, -1, 3.0f });
-	
+		->SetLocalTransform({ -50, -1, 3.0f });
+
 	//天空盒对象
 	m_scene->AddRenderObject("skyBox", "geo_sphere", "sub_sphere", skyMat, RenderLayer::SkyBox)
-		   ->GetComponent<RenderComponent>()->neverCull = true; //设置为不剔除
+		->GetComponent<RenderComponent>()->isNeverCull = true; //设置为不剔除
 
-	
+
 	//5x5立方体阵列
 	for (int i = 0; i < 5; i++)
 	{
@@ -1375,19 +1369,19 @@ void BoxGameApp::BuildScene()
 			Node* obj_box = m_scene->AddRenderObject("box" + std::to_string(i) + std::to_string(j),
 				"geo_box", "sub_box", brickMat, RenderLayer::Opaque);
 			obj_box->SetLocalTransform(
-					{ float(i * 2), 0.5f + float(j * 2), 3.0f },
-					{ 0.0f,XM_PI * 0.25f + i * 0.2f,j * 0.2f });
+				{ float(i * 2), 0.5f + float(j * 2), 3.0f },
+				{ 0.0f,XM_PI * 0.25f + i * 0.2f,j * 0.2f });
 			m_scene->AddCollisionFromNode(obj_box, ECollisionType::OBB);
 
 		}
 	}
 	//外部模型对象
 	Node* obj_Ak = m_scene->AddRenderObject("mesh1", "geo_mesh1", "sub_mesh1", plasticMat, RenderLayer::Opaque);
-		obj_Ak->SetLocalTransform(
-			{ 0.0f, 1.0f, 0.0f },
-			{ XM_PI * 0.5f, 0, 0 },
-			{ 0.005f,  0.005f,  0.005f });
-		m_scene->AddCollisionFromNode(obj_Ak, ECollisionType::OBB);
+	obj_Ak->SetLocalTransform(
+		{ 0.0f, 1.0f, 0.0f },
+		{ XM_PI * 0.5f, 0, 0 },
+		{ 0.005f,  0.005f,  0.005f });
+	m_scene->AddCollisionFromNode(obj_Ak, ECollisionType::OBB);
 
 	//构造子网格描述
 	std::vector<SubmeshDesc> desc;
@@ -1408,10 +1402,13 @@ void BoxGameApp::BuildScene()
 		{ 0, 0, 0 },
 		{ 0.02f,  0.02f,  0.02f });
 	m_scene->AddCollisionFromNode(obj_player, ECollisionType::Triangle);
-	auto* skComp =m_scene->AddSkeletonFromNode(obj_player, "player_skeleton");
+	auto* skComp = m_scene->AddSkeletonFromNode(obj_player, "player_skeleton");
 	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 
 	//obj_player->AddComponent<ControlComponent>(&m_camera,m_rayCaster.get(),m_inputManage.get());
+#pragma endregion
+
+	
 
 	// 构建SRV堆
 	m_scene->SaveSRVToHeap(

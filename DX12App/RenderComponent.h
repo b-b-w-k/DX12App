@@ -69,9 +69,9 @@ public:
 
 	
 public:
-	bool neverCull = false;                  // 永远不会剔除(天空盒,调试线)
-	bool isCull    = true;                   // 是否剔除
-	bool isVisible = true;                   // 是否可见(暂时隐藏)
+	bool isNeverCull = false;                // 永远不会剔除(天空盒,调试线)
+	bool isCull      = true;                 // 是否剔除
+	bool isVisible   = true;                 // 是否可见(暂时隐藏)
 
 private:
 	std::deque<SubmeshDraw> m_submeshes;     // 子网格渲染项(双端队列,扩容指针不失效)

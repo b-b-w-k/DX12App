@@ -12,6 +12,7 @@ enum class ECollisionType
 	OBB      = 2,
 	Sphere   = 3,
 	Triangle = 4,
+	Terrain  = 5
 };
 
 //碰撞层级掩码
@@ -47,8 +48,9 @@ public:
 	CollisionComponent& SetBoundFromMinMax(const DirectX::XMFLOAT3& mn,
 										   const DirectX::XMFLOAT3& mx);
 
-	//用世界空间AABB填充(AABB/OBB/包围球),Scene每帧自动刷新时调用
-	void SetBoundFromWorldAABB(const DirectX::BoundingBox& worldAABB);
+	// 设置碰撞箱(用局部包围盒+世界矩阵)
+	void SetBoundFromMatW(const DirectX::BoundingBox& localAABB,
+						  const DirectX::XMMATRIX& world);
 
 public:
 
@@ -58,15 +60,10 @@ public:
 	DirectX::BoundingOrientedBox bound_OBB     = {};     // 包围盒OBB
 	DirectX::BoundingSphere      bound_Spheres = {};     // 包围球
 
-	// 包围盒有效性:没填充过的盒不参与检测/可视化
-	bool isBoundValid  = false;
-	// 是否被手动设置过(手动设置的不被每帧自动刷新覆盖)
-	bool isBoundManual = false;
+	bool isIndependent = false;                          // 是否独立(包围盒手动设置)
+	bool isUseBound    = true;                           // 是否使用包围盒(对象用高度图采样)
 
-	bool isStatic   = true;                              // 是否为静态物体
-	bool isTriangle = false;                             // 是否可以进行三角形细筛
-
-	ELayerMask layer = ELayerMask::None;                  // 碰撞层级
-	UINT       mask  = UINT_MAX;                          // 碰撞掩码(受那几个层级的碰撞)
+	ELayerMask layer = ELayerMask::None;                 // 碰撞层级
+	UINT       mask  = UINT_MAX;                         // 碰撞掩码(受那几个层级的碰撞)
 };
 

@@ -270,7 +270,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>>  m_geometries;   // 所有网格数据
     std::unordered_map<std::string, std::unique_ptr<Material>>      m_materials;    // 所有材质数据
     std::unordered_map<std::string, std::unique_ptr<Skeleton>>      m_skeletons;    // 所有骨架数据
-    std::unordered_map<std::string, std::unique_ptr<AnimationClip>> m_animateClips; // 所有骨架数据
+    std::unordered_map<std::string, std::unique_ptr<AnimationClip>> m_animateClips; // 所有动画数据
 
 	//地形数据
     std::unique_ptr<TerrainHeightField> m_terrHeightField;                   // 地形高度场(用于采样地形高度图)

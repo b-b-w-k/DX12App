@@ -18,10 +18,6 @@ CollisionComponent& CollisionComponent::SetBoundFromCenter(const DirectX::XMFLOA
 	float ez = extents.z;
 	bound_Spheres.Radius = sqrtf(ex * ex + ey * ey + ez * ez);
 
-	//手动设置:标记有效,并且不允许每帧自动刷新覆盖
-	isBoundValid  = true;
-	isBoundManual = true;
-
 	return *this;
 }
 
@@ -43,21 +39,21 @@ CollisionComponent& CollisionComponent::SetBoundFromMinMax(const DirectX::XMFLOA
 	return SetBoundFromCenter(center, extents);
 }
 
-void CollisionComponent::SetBoundFromWorldAABB(const DirectX::BoundingBox& worldAABB)
+void CollisionComponent::SetBoundFromMatW(const DirectX::BoundingBox& localAABB,
+										  const DirectX::XMMATRIX& world)
 {
-	//世界空间AABB直接取用
-	bound_AABB = worldAABB;
+	// 世界AABB: 轴对齐(用于粗筛/视锥剔除)
+	localAABB.Transform(bound_AABB, world);
 
-	//构建OBB
-	DirectX::BoundingOrientedBox::CreateFromBoundingBox(bound_OBB, bound_AABB);
+	// 世界OBB : 保留朝向(用于精确判定)
+	DirectX::BoundingOrientedBox localOBB;
+	DirectX::BoundingOrientedBox::CreateFromBoundingBox(localOBB, localAABB);
+	localOBB.Transform(bound_OBB, world);
 
-	//构建包围球
-	bound_Spheres.Center = worldAABB.Center;
-	float ex = worldAABB.Extents.x;
-	float ey = worldAABB.Extents.y;
-	float ez = worldAABB.Extents.z;
+	//包围球
+	bound_Spheres.Center = bound_OBB.Center;
+	float ex = bound_OBB.Extents.x;
+	float ey = bound_OBB.Extents.y;
+	float ez = bound_OBB.Extents.z;
 	bound_Spheres.Radius = sqrtf(ex * ex + ey * ey + ez * ez);
-
-	//自动刷新:只标有效,不动 isBoundManual
-	isBoundValid = true;
 }

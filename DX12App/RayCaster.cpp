@@ -158,10 +158,8 @@ bool RayCaster::IntersectNode(const Ray& ray, Node* node,
 	auto* col = node->GetComponent<CollisionComponent>();
 	if (!col) return false;
     // 不支持碰撞的跳过
-    if (col->collisionType == ECollisionType::None)return false;
-    // 还没有有效包围盒的跳过(避免拿零初始化盒做粗筛)
-    if (!col->isBoundValid) return false;
-
+    if ( col->collisionType == ECollisionType::None)return false;
+    if (!col->isUseBound)return false;
     //射线信息
 	XMVECTOR origin = XMLoadFloat3(&ray.origin);
 	XMVECTOR dir = XMLoadFloat3(&ray.direction);

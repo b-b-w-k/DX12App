@@ -267,7 +267,12 @@ void Scene::BuildTerrain(Material* mat,
 	//设置变换
 	obj->SetLocalTransform({ center.x, center.y, center.z });
 	auto* rc = obj->GetComponent<RenderComponent>();
-	rc->neverCull = true;//设为不剔除
+	rc->isNeverCull = true;//设为不剔除
+
+	//碰撞配置
+	AddCollisionFromNode(obj, ECollisionType::Terrain);
+	auto* col = obj->GetComponent<CollisionComponent>();
+	col->isUseBound = false;
 
 	//启用实例化
 	auto& sub = rc->GetSubmeshs().front();
@@ -313,7 +318,7 @@ Node* Scene::AddAirWall(const std::string& name,
 	//将节点加入视图表
 	AttachToView(pNode, colComp);
 	colComp->SetBoundFromCenter(center, extents);
-
+	colComp->isIndependent = true;
 	return pNode;
 }
 
@@ -327,7 +332,7 @@ Node* Scene::AddAirWallMinMax(const std::string& name,
 	//将节点加入视图表
 	AttachToView(pNode, colComp);
 	colComp->SetBoundFromMinMax(mn, mx);
-
+	colComp->isIndependent = true;
 	return pNode;
 }
 
@@ -439,7 +444,7 @@ void Scene::RemoveNode(const std::string& name)
 
 	RemoveNode(m_renderNodes);
 	RemoveNode(m_collisionNodes);
-
+	RemoveNode(m_skeletonNodes);
 	//如果有渲染组件的处理
 	if (auto* renderComp=pNode->GetComponent<RenderComponent>())
 	{
@@ -720,7 +725,7 @@ void Scene::UpdateWorldTransforms()
 void Scene::UpdateBounds()
 {
 	//更新到世界空间
-	for (auto* pNode : m_renderNodes)
+	for (auto* pNode : m_collisionNodes)
 	{
 
 		auto* renderComp = pNode->GetComponent<RenderComponent>();
@@ -738,33 +743,29 @@ void Scene::UpdateBounds()
 			if (it == sub.meshGeo->meshGeometry.end())continue;
 
 			const auto& localBound = it->second.Bounds;
-			XMMATRIX W = XMLoadFloat4x4(&pNode->worldTransform);
-			//变换到世界空间AABB
-			DirectX::BoundingBox worldBound;
-			localBound.Transform(worldBound, W);
 
 			//刚开始merged为空,需要填充
 			if (first)
 			{
-				merged = worldBound;
+				merged = localBound;
 				first = false;
 			}
 			else
 			{
 				//合并包围盒(out,b1,b2)
-				DirectX::BoundingBox::CreateMerged(merged, merged, worldBound);
+				DirectX::BoundingBox::CreateMerged(merged, merged, localBound);
 			}
 		}
 		//没有任何有效子网格
 		if (first)continue;
 
-		//包围盒统一存放进碰撞组件(渲染剔除与射线粗筛共用同一份数据)
+		//包围盒统一存放进碰撞组件
 		auto* colComp = pNode->GetComponent<CollisionComponent>();
 		if (!colComp) colComp = pNode->AddComponent<CollisionComponent>();
 
-		//手动设置过的包围盒(空气墙/手调的盒)不被每帧自动刷新覆盖
-		if (!colComp->isBoundManual)
-			colComp->SetBoundFromWorldAABB(merged);
+		//手动设置过的包围盒不被每帧自动刷新覆盖
+		if (!colComp->isIndependent)
+			colComp->SetBoundFromMatW(merged, XMLoadFloat4x4(&pNode->worldTransform));
 	}
 }
 
@@ -779,7 +780,7 @@ void Scene::UpdateObjCB(FrameResource* frame)
 		auto* renderComp = pNode->GetComponent<RenderComponent>();
 		if (!renderComp)continue;
 
-		bool anyDirty = pNode->IsDirty();//节点脏
+		bool anyDirty = pNode->IsDirty();
 
 		if (!anyDirty)//如果节点不脏,检查子网格是否脏
 		{
@@ -1031,8 +1032,8 @@ void Scene::CullFrustum()
 		//包围盒统一从碰撞组件取
 		auto* colComp = pNode->GetComponent<CollisionComponent>();
 
-		//天空盒,调试线不会被剔除;没有有效包围盒的也不剔除
-		if (renderComp->neverCull || !colComp || !colComp->isBoundValid)
+		//天空盒,调试线不会被剔除,没有有效包围盒的也不剔除
+		if (renderComp->isNeverCull || !colComp)
 		{
 			renderComp->isCull = false;
 		}
