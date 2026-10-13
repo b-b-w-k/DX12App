@@ -15,6 +15,7 @@
 | MSAA | 4x MSAA 及 MSAA 深度模板，随窗口尺寸变化重建 |
 | 天空盒 | 立方体贴图，独立 CUBE SRV 与 PSO |
 | 反射 | 水面平面反射 RTT、环境立方反射 RTT、水面波动着色器 |
+| 阴影 | 阴影贴图+3x3PCF核采样阴影贴图 |
 | 地形 | 高度图 CPU 采样 + 高度/法线烘焙到 RGBA16 纹理 + 四叉树 LOD + 硬件曲面细分（HS/DS）+ 实例化渲染 patch |
 | 模型与动画 | assimp 导入 FBX，骨骼层级 + 动画片段采样 + 蒙皮 |
 | 碰撞与射线 | AABB / OBB / 三角形 / 地形高度图；射线拾取、移动检测、地面高度、摄像机防穿墙 |
@@ -89,6 +90,7 @@ DX12App/
 │  ├─ QuadTree.*               地形四叉树 LOD 与 patch 管理
 │  ├─ RayCaster.*              射线拾取、移动检测、地面高度
 │  ├─ ReflectionRTT.*          反射渲染目标
+|  ├─ ShadowMap.*              阴影贴图
 │  ├─ GeoGenerator.*           程序化几何 + assimp FBX 导入
 │  ├─ Skeleton.h / AnimationClip.*
 │  ├─ D2DTextRenderer.* / DebugLineRenderer.* / Frustum.h
@@ -120,7 +122,6 @@ DX12App/
 ## 已知限制
 
 - 仅支持 Windows / DirectX 12，无 D3D11 或 Vulkan 回退
-- 阴影（Shadow Map）尚未实现(未来补充)
 - 目前只有 `Debug|x64` 配置经过验证
 - 地形与部分几何的 LOD 策略仍在调整中
 
