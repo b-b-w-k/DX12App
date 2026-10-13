@@ -47,14 +47,18 @@ TextureCube gCubeTexMap : register(t0, space0);
 // 材质结构体缓冲区,存放材质数据
 StructuredBuffer<MaterialData> gMaterialData : register(t0, space1);
 
-// t2是动态反射纹理(平面/立方体)按需提供
+// t0 space2是动态反射纹理(平面/立方体)按需提供
 
 // 骨骼结构体缓冲区,存放骨骼最终变换矩阵
 StructuredBuffer<float4x4> gBoneTransforms : register(t0, space3);
 
 // 2D纹理资源
-Texture2D   gTextureMap[4] : register(t1);
+Texture2D gTextureMap[4] : register(t1, space0);
 
+//t1 space1 是地形高度图
+
+//t1 space2 阴影贴图
+Texture2D gShadowMap : register(t1, space2);
 
 
 //静态采样器
@@ -64,6 +68,8 @@ SamplerState gSamplerLinearWrap  : register(s2);
 SamplerState gSamplerLinearClamp : register(s3);
 SamplerState gSamplerAnisoWrap   : register(s4);
 SamplerState gSamplerAnisoClamp  : register(s5);
+//比较采样器
+SamplerComparisonState gSamplerShadow : register(s6);
 
 //对象常量缓冲区
 cbuffer ObjectCB : register(b0)
@@ -85,6 +91,7 @@ cbuffer PassCB : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    float4x4 gShadowTransform;
     float3   gEyePosW;
     int      gIsClipPlaneEnabled; //裁剪平面是否启用
     float2   gRenderTargetSize;
@@ -219,4 +226,52 @@ float terrainNoise(float2 p)
     n += sin(p.x * 0.31f) * cos(p.y * 0.27f) * 0.3f;
     n += sin(p.x * 0.71f) * cos(p.y * 0.63f) * 0.2f;
     return saturate(n * 0.5f + 0.5f); // 归一化到 0~1
+}
+
+//计算阴影因子函数(PCF3x3)
+float CalcShadowFactor(float4 shadowPosH)
+{
+    //光源背后,无效退出
+    if (shadowPosH.w <= 0.0f) return 1.0f;
+    
+    //ndc空间
+    shadowPosH.xyz /= shadowPosH.w;
+    //( -1,1)->(0,1)
+    float2 uv = float2(shadowPosH.x * 0.5f + 0.5f,
+                       shadowPosH.y * -0.5f + 0.5f);
+
+    //深度值
+    float depth = shadowPosH.z;
+
+    //出界值按有光处理
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f)
+        return 1.0f;
+    if (depth < 0.0f || depth > 1.0f)
+        return 1.0f;
+    
+    //获取阴影图信息
+    uint width, height, numMips;
+    gShadowMap.GetDimensions(0, width, height, numMips);
+
+    // 单位纹素
+    float dx = 1.0f / (float) width;
+
+    float percentLit = 0.0f;
+    //3x3PCF采样
+    const float2 offsets[9] =
+    {
+        float2(-dx, -dx),  float2(0.0f, -dx),  float2(dx, -dx),
+        float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
+        float2(-dx, +dx),  float2(0.0f, +dx),  float2(dx, +dx)
+    };
+
+    [unroll]
+    for (int i = 0; i < 9; ++i)
+    {
+        //采样阴影图与深度比较获取阴影因子
+        percentLit += gShadowMap.SampleCmpLevelZero(gSamplerShadow,
+            uv + offsets[i], depth).r;
+    }
+    //混合权重
+    return percentLit / 9.0f;
 }

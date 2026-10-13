@@ -59,6 +59,9 @@
     <Filter Include="四叉树">
       <UniqueIdentifier>{db0728bb-4085-42bd-b9e2-cfee60f73779}</UniqueIdentifier>
     </Filter>
+    <Filter Include="阴影贴图">
+      <UniqueIdentifier>{1a101168-26e9-4dec-a164-99950a7e7d58}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\shaders\color.hlsl">
@@ -164,6 +167,9 @@
     </ClCompile>
     <ClCompile Include="ControlComponent.cpp">
       <Filter>组件</Filter>
+    </ClCompile>
+    <ClCompile Include="ShadowMap.cpp">
+      <Filter>阴影贴图</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -271,6 +277,9 @@
     </ClInclude>
     <ClInclude Include="QuadTree.h">
       <Filter>四叉树</Filter>
+    </ClInclude>
+    <ClInclude Include="ShadowMap.h">
+      <Filter>阴影贴图</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

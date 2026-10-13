@@ -19,6 +19,7 @@ class SceneObject;
 class DebugLineRenderer;
 class ReflectionRTT;
 class RayCaster;
+class ShadowMap;
 
 
 using  namespace Microsoft::WRL;
@@ -40,6 +41,7 @@ private:
     void OnResize()override;
 
 	void DrawReflections();            // 绘制反射纹理(平面/立体)
+    void DrawShadowMap();              // 绘制阴影贴图
 	void DrawD2DText();                // 绘制2D文字
 	void DrawDebugLine();              // 绘制调试线
 
@@ -61,6 +63,7 @@ private:
     void BuildSkinnedPso();            //骨骼
     void BuildTerrainPso();            //地形
     void BuildReflectPso();            //反射
+    void BuildShadowPso();             //阴影
     void BuildTransparentPso();        //透明
     void BuildMirrorPso();             //平面镜
     void BuildWavePso();               //水面
@@ -71,6 +74,7 @@ private:
 
     void BuildScene();                 // 构建场景
     void BuildReflection();            // 构建反射
+    void BuildShadowMap();             // 构建阴影
 
     void BuildGlobalDescriptorHeaps();           // 建立全局描述符堆
 	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocSrvCpu(); // 分配SRV描述符句柄CPU
@@ -80,7 +84,7 @@ private:
 
 
     //构建静态采样器
-    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
     
     //世界转屏幕坐标
     bool WorldToScreen(const DirectX::XMFLOAT3& world, DirectX::XMFLOAT2& outScreen);
@@ -134,6 +138,9 @@ private:
 	std::unique_ptr<ReflectionRTT>     m_waterRT;                       // 水面反射(平面)用于构建资源,更新常量缓冲区
 	std::unique_ptr<ReflectionRTT>     m_envRT;                         // 环境反射(立体)于构建资源,更新常量缓冲区
 
+
+    // ===== 阴影 =====
+    std::unique_ptr<ShadowMap>         m_shadowMap;                     // 阴影贴图,用于构建资源,更新常量缓冲区
 
 
     // ===== 缓冲区更新数据 =====

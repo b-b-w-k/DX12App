@@ -1,4 +1,5 @@
 #include "ReflectionRTT.h"
+#include "ShadowMap.h"
 
 using namespace DirectX;
 ReflectionRTT::ReflectionRTT(ID3D12Device* device, 

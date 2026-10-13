@@ -17,6 +17,7 @@
 #include "AnimationClip.h"
 #include "Skeleton.h"
 #include "RayCaster.h"
+#include "ShadowMap.h"
 
 
 
@@ -75,6 +76,7 @@ bool BoxGameApp::InitApp()
 	
 
 	BuildReflection();           //建立反射资源
+	BuildShadowMap();
 	// ===== 管线资源初始化 =====
 	BuildRootSignature();//获取纹理数量,构建描述符表
 	BuildShadersAndInputLayout();
@@ -388,6 +390,70 @@ void BoxGameApp::DrawReflections()
 
 }
 
+void BoxGameApp::DrawShadowMap()
+{
+	auto passCB = m_curFrameResource->passCBuffer->Resource();
+	const UINT passCBSize = D3DTools::BufferByteSize(sizeof(PassConstants));
+
+	//保存剔除状态
+	std::vector<char> saveCull;
+	saveCull.reserve(m_scene->GetRenderNum());
+	for (auto* obj : m_scene->GetRenderObjects())
+	{
+		auto* renderComp = obj->GetComponent<RenderComponent>();
+		if (!renderComp)continue;
+		saveCull.push_back(renderComp->isCull);
+		renderComp->isCull = false;
+	}
+
+	//状态转换: 采样->深度写入
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		m_shadowMap->GetResource(),
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_DEPTH_WRITE);
+	m_commandList->ResourceBarrier(1, &barrier);
+
+	//无需绑定渲染目标,只写入深度
+	auto dsv = m_shadowMap->GetHCpuDsv();
+	m_commandList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+	m_commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+	//视口和裁切矩形
+	auto view = m_shadowMap->GetViewport();
+	auto screen = m_shadowMap->GetScreenRect();
+	m_commandList->RSSetViewports(1, &view);
+	m_commandList->RSSetScissorRects(1, &screen);
+
+	m_commandList->SetGraphicsRootConstantBufferView(
+		1, passCB->GetGPUVirtualAddress() + passCBSize * 8);
+
+	//有阴影的物体
+	m_scene->Draw(m_PSOs["ShadowOpaque"].Get(),  RenderLayer::Opaque,  m_curFrameResource);
+	m_scene->Draw(m_PSOs["ShadowSkinned"].Get(), RenderLayer::Skinned, m_curFrameResource);
+	m_scene->Draw(m_PSOs["ShadowTerrain"].Get(), RenderLayer::Terrain, m_curFrameResource);
+
+	//状态转换: 深度写入->采样
+	barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		m_shadowMap->GetResource(),
+		D3D12_RESOURCE_STATE_DEPTH_WRITE,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	m_commandList->ResourceBarrier(1, &barrier);
+
+	//恢复剔除
+	int i = 0;
+	for (auto* obj : m_scene->GetRenderObjects())
+	{
+		auto* renderComp = obj->GetComponent<RenderComponent>();
+		if (!renderComp)continue;
+		renderComp->isCull = saveCull[i++];
+	}
+	//恢复渲染设置
+	m_commandList->RSSetViewports(1, &m_screenViewport);
+	m_commandList->RSSetScissorRects(1, &m_scissorRect);
+	m_commandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+}
+
 void BoxGameApp::DrawD2DText()
 {
 	if (!m_textRenderer || !m_textRenderer->IsInit())return;
@@ -646,8 +712,21 @@ void BoxGameApp::UpdateMainPassCB(float dt)
 
 	m_mainPassCB.isClipPlane = 0;//默认不裁剪
 
+	// 更新阴影矩阵
+	// 正交盒只覆盖场景中需要投射阴影的物体范围
+	// 需要自行把控
+	const XMFLOAT3 sceneCenter = {  4.0f, 4.0f, 3.0f };
+	const float    sceneRadius = 40.0f; //世界半径
+	m_shadowMap->UpdateLightMat(
+		m_mainPassCB.lights[0].direction, sceneCenter, sceneRadius, m_mainPassCB);
+
+	const PassConstants& shadowCB = m_shadowMap->GetShadowPassCB();
+	m_mainPassCB.shadowTransform = shadowCB.shadowTransform;
+
+
 	auto curPassCB = m_curFrameResource->passCBuffer.get();
 	curPassCB->CopyData(0, m_mainPassCB);
+	curPassCB->CopyData(8, shadowCB);
 
 	//上传更新反射过程常量缓冲区
 	if (m_waterRT)
@@ -787,8 +866,14 @@ void BoxGameApp::GameRender()
 	auto* boneBuffer = m_curFrameResource->boneBuffer->Resource();
 	m_commandList->SetGraphicsRootShaderResourceView(6, boneBuffer->GetGPUVirtualAddress());
 
+	//阴影贴图
+	m_commandList->SetGraphicsRootDescriptorTable(9, m_shadowMap->GetHGpuSrv());
+
 	
 	//绘制渲染项 相同pso统一渲染
+
+	//绘制阴影贴图
+	DrawShadowMap();
 	
 	//绘制反射纹理
 	DrawReflections();
@@ -884,8 +969,12 @@ void BoxGameApp::BuildRootSignature()
 	heightTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
 		1, 1, 1);
 
+	CD3DX12_DESCRIPTOR_RANGE shadowTable;
+	shadowTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 
+		1, 1, 2);
+
 	// 填写根参数
-	CD3DX12_ROOT_PARAMETER slotRootParameter[9];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[10];
 
 	// 常量缓冲区根参数
 	slotRootParameter[0].InitAsConstantBufferView(0); // objCB     b0
@@ -901,14 +990,15 @@ void BoxGameApp::BuildRootSignature()
 	// t1寄存器根参数
 	slotRootParameter[7].InitAsDescriptorTable(1,&texTable, D3D12_SHADER_VISIBILITY_PIXEL);     // tex    t1 sapce0
 	slotRootParameter[8].InitAsDescriptorTable(1, &heightTable, D3D12_SHADER_VISIBILITY_DOMAIN);// height t1 space1
+	slotRootParameter[9].InitAsDescriptorTable(1, &shadowTable, D3D12_SHADER_VISIBILITY_PIXEL);// height t1 space2
 
 	auto staticSamplers = GetStaticSamplers();//静态采样器
 
 	CD3DX12_ROOT_SIGNATURE_DESC rootSignDesc(
-		9,                    //根参数数量
-		slotRootParameter,    //根参数
-		staticSamplers.size(),//静态采样器数量
-		staticSamplers.data(),//静态采样器
+		_countof(slotRootParameter),//根参数数量
+		slotRootParameter,			//根参数
+		staticSamplers.size(),		//静态采样器数量
+		staticSamplers.data(),		//静态采样器
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);//需要顶点输入布局
 
 	Microsoft::WRL::ComPtr<ID3DBlob> seriRootSignature = nullptr;
@@ -947,7 +1037,7 @@ void BoxGameApp::BuildFrameResource()
 	{
 		m_frameResources.push_back(std::make_unique<FrameResource>(
 			m_d3dDevice.Get(),
-			8,//过程常量+平面反射常量+Cube反射CB
+			9,//过程常量+平面反射常量+Cube反射CB+阴影CB
 			m_scene->GetSubmeshNum(),   // 对象CB
 			m_scene->GetMaterialNum()));// 材质缓冲区
 
@@ -1089,9 +1179,23 @@ D3D12_RENDER_TARGET_BLEND_DESC BoxGameApp::AlphaBlendDesc() const
 
 void BoxGameApp::CreatePso(const char* name, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& desc)
 {
-	ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(
-		&desc,
-		IID_PPV_ARGS(&m_PSOs[name])));
+	HRESULT hr = m_d3dDevice->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&m_PSOs[name]));
+	if (FAILED(hr))
+	{
+		char buf[600];
+		sprintf_s(buf,
+			"[PSO] %s FAILED hr=0x%08X | VS=%p/%zu PS=%p/%zu HS=%p/%zu DS=%p/%zu | NumRT=%u RTV0=%d DSV=%d | Sample=%u/%u Topo=%d IL=%zu\n",
+			name, (unsigned)hr,
+			desc.VS.pShaderBytecode, desc.VS.BytecodeLength,
+			desc.PS.pShaderBytecode, desc.PS.BytecodeLength,
+			desc.HS.pShaderBytecode, desc.HS.BytecodeLength,
+			desc.DS.pShaderBytecode, desc.DS.BytecodeLength,
+			desc.NumRenderTargets, (int)desc.RTVFormats[0], (int)desc.DSVFormat,
+			desc.SampleDesc.Count, desc.SampleDesc.Quality,
+			(int)desc.PrimitiveTopologyType, desc.InputLayout.NumElements);
+		OutputDebugStringA(buf);   //VS 输出窗口能看到
+	}
+	ThrowIfFailed(hr);
 }
 
 void BoxGameApp::BuildOpaquePso()
@@ -1132,6 +1236,44 @@ void BoxGameApp::BuildReflectPso()
 	desc.RasterizerState.FrontCounterClockwise = TRUE;   //三角形绕序翻转
 	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;//背面不剔除
 	CreatePso("ReflectOpaque", desc);
+}
+
+void BoxGameApp::BuildShadowPso()
+{
+	// 阴影投射只需要VS,不需要PS;没有渲染目标,只写深度
+	auto setDepthOnly = [](D3D12_GRAPHICS_PIPELINE_STATE_DESC& d)
+		{
+			d.PS = { nullptr, 0 };
+			d.NumRenderTargets = 0;
+			d.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+			d.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+			// 深度偏移:抑制自阴影痤疮
+			d.RasterizerState.DepthBias = 1000;
+			d.RasterizerState.DepthBiasClamp = 0.0f;
+			d.RasterizerState.SlopeScaledDepthBias = 2.0f;
+		};
+
+	// 普通/镜面/水面物体,复用standardVS
+	auto desc = BasePsoDesc();
+	setDepthOnly(desc);
+	CreatePso("ShadowOpaque", desc);
+
+	//蒙皮物体,复用skinnedVS
+	desc = BasePsoDesc();
+	desc.InputLayout = { m_skinInputLayout.data(),(UINT)m_skinInputLayout.size() };
+	desc.VS = Shader("skinnedVS");
+	setDepthOnly(desc);
+	CreatePso("ShadowSkinned", desc);
+
+	//地形,复用地形VS/HS/DS
+	desc = BasePsoDesc();
+	desc.InputLayout = { m_terrainInputLayout.data(),(UINT)m_terrainInputLayout.size() };
+	desc.VS = Shader("terrainVS");
+	desc.HS = Shader("terrainHS");
+	desc.DS = Shader("terrainDS");
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+	setDepthOnly(desc);
+	CreatePso("ShadowTerrain", desc);
 }
 
 void BoxGameApp::BuildTransparentPso()
@@ -1218,6 +1360,7 @@ void BoxGameApp::BuildPSO()
 	BuildSkinnedPso();      //蒙皮
 	BuildTerrainPso();      //地形
 	BuildReflectPso();      //反射对象
+	BuildShadowPso();
 	BuildTransparentPso();  //透明混合物体
 	BuildMirrorPso();       //镜面
 	BuildWavePso();         //动态水面
@@ -1465,6 +1608,17 @@ void BoxGameApp::BuildReflection()
 
 }
 
+void BoxGameApp::BuildShadowMap()
+{
+	m_shadowMap = std::make_unique<ShadowMap>(m_d3dDevice.Get(), 2048);
+
+	auto cpuSrv = AllocSrvCpu();
+	auto gpuSrv = AllocSrvGpu();
+	auto cpuDsv = AllocDsvCpu();
+
+	m_shadowMap->BuildDescriptors(cpuSrv, gpuSrv, cpuDsv);
+}
+
 void BoxGameApp::BuildGlobalDescriptorHeaps()
 {
 	m_rtvDescSize = m_d3dDevice->GetDescriptorHandleIncrementSize(
@@ -1553,7 +1707,7 @@ bool  BoxGameApp::WorldToScreen(const XMFLOAT3& world, XMFLOAT2& outScreen)
 	return true;
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> BoxGameApp::GetStaticSamplers()
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> BoxGameApp::GetStaticSamplers()
 {
 	const CD3DX12_STATIC_SAMPLER_DESC pointWarp //点过滤+重复寻址
 	{
@@ -1613,11 +1767,24 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> BoxGameApp::GetStaticSamplers()
 		8
 	};
 
+	const CD3DX12_STATIC_SAMPLER_DESC shadow //阴影图采样
+	{
+		6,
+		D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT, //比较过滤模式：缩小/放大用线性，MIP 用点采样
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,                //UVW 超出(0,1)时使用边框颜色
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		0.0f,
+		16,
+		D3D12_COMPARISON_FUNC_LESS_EQUAL,                //比较为小于等于
+		D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK           //边框颜色为不透明黑,深度值0
+	};
 
 	return 
 	{ 
 		pointWarp, pointClamp, linearWarp, 
-		linearClamp, anisoWarp, anisoClamp 
+		linearClamp, anisoWarp, anisoClamp ,
+		shadow
 	};
 }
 

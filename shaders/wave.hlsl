@@ -101,7 +101,12 @@ float4 PS(VertexOut pin) : SV_Target
     // 光照 
     const float shininess = 1.0f - roughness;
     Material mat = { float4(waterColor, 1.0f), fresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
+    
+    //阴影因子计算
+    float3 shadowFactor;
+    shadowFactor[0] = CalcShadowFactor(mul(float4(pin.PosW, 1.0f), gShadowTransform)); //只受方向光影响
+    shadowFactor[1] = 1.0f; //点光
+    shadowFactor[2] = 1.0f; //聚光灯
 
     float4 ambient = gAmbientLight * float4(waterColor, 1.0f) * 0.3f;
     float4 directLight = ComputeLight(gLights, mat, pin.PosW, N, toEyeW, shadowFactor) * (1 - diffAlbedo.a);

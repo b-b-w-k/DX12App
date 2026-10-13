@@ -194,6 +194,7 @@
     <ClCompile Include="ReflectionRTT.cpp" />
     <ClCompile Include="RenderComponent.cpp" />
     <ClCompile Include="Scene.cpp" />
+    <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="SkeletonComponent.cpp" />
     <ClCompile Include="TerrainHeightField.cpp" />
   </ItemGroup>
@@ -228,6 +229,7 @@
     <ClInclude Include="RenderData.h" />
     <ClInclude Include="RenderLayer.h" />
     <ClInclude Include="Scene.h" />
+    <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="Skeleton.h" />
     <ClInclude Include="SkeletonComponent.h" />
     <ClInclude Include="TerrainHeightField.h" />

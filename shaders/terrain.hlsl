@@ -271,7 +271,12 @@ float4 PS(DSOut pin) : SV_Target
     const float shininess = 1.0f - roughness;
     //材质结构体,用于传递给光照计算函数
     Material mat = { diffAlbedo, fresnelR0, shininess };
-    float3 shadowFactor = 1.0f; //先不计算阴影
+    
+    //阴影因子计算
+    float3 shadowFactor;
+    shadowFactor[0] = CalcShadowFactor(mul(float4(pin.PosW, 1.0f), gShadowTransform)); //只受方向光影响
+    shadowFactor[1] = 1.0f; //点光
+    shadowFactor[2] = 1.0f; //聚光灯
     
     //计算直接光照,使用世界空间法线贴图
     float4 directLight = ComputeLight(gLights, mat, pin.PosW,
