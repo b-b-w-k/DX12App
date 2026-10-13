@@ -13,6 +13,14 @@ void ControlComponent::Update(float dt)
 	if (state == EState::DIED)return;
 	if (!owner || !rayCaster)return;
 
+	//组件更新在变换之前,所以要主动拿第一次的位置
+	if (!m_inited)
+	{
+		auto& I = owner->localTransform;
+		m_pos = { I._41, I._42, I._43 };
+		m_inited = true;
+	}
+
 	UpdateInput();
 	UpdateToward(dt);
 	UpdateMoveHor(dt);
@@ -142,9 +150,7 @@ void ControlComponent::UpdateMoveHor(float dt)
 	XMStoreFloat3(&vel, v);
 
 	// 获取起始位置
-	XMFLOAT3 start = { owner->localTransform._41,
-					   owner->localTransform._42 ,
-					   owner->localTransform._43 };
+	XMFLOAT3 start = m_pos;
 	// 目标位置
 	XMFLOAT3 end = { start.x + vel.x * dt,
 					 start.y,
@@ -176,7 +182,12 @@ void ControlComponent::UpdateMoveVer(float dt)
 {
 	//获取地面高度
 	float groundY = rayCaster->GetGroundHeight(m_pos.x, m_pos.z, owner);
-
+	//没采样到地面高度
+	if (groundY <= -FLT_MAX)
+	{
+		m_isGround = false;
+		return;
+	}
 	//站立高度
 	float standY = groundY + feetOffset;
 	//写入pos

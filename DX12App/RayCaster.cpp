@@ -3,6 +3,7 @@
 #include "Node.h"
 #include "CollisionComponent.h"
 #include "RenderComponent.h"
+#include "TerrainHeightField.h"
 
 using namespace DirectX;
 
@@ -157,85 +158,138 @@ bool RayCaster::IntersectNode(const Ray& ray, Node* node,
     if (!node)return false;
 	auto* col = node->GetComponent<CollisionComponent>();
 	if (!col) return false;
-    // 不支持碰撞的跳过
+    // 不支持碰撞检测的跳过
     if ( col->collisionType == ECollisionType::None)return false;
-    if (!col->isUseBound)return false;
+    if (!col->isRayCaster)return false;
     //射线信息
 	XMVECTOR origin = XMLoadFloat3(&ray.origin);
 	XMVECTOR dir = XMLoadFloat3(&ray.direction);
 
+#pragma region 地形检测
+	//单独判断地形的检测(用高度图求交),不用经过粗筛和细筛
+	if (col->collisionType == ECollisionType::Terrain)
+	{
+		const TerrainHeightField* field = m_scene->GetTerrainHeightField();
+		if (!field) return false;
 
-    //先用包围盒粗略筛选
-    float tShape;//包围盒命中距离
-    if (col->collisionType == ECollisionType::OBB)//支持OBB
-    {
-        float dist;
-        //DX碰撞库里包围盒与射线检测函数,dist为输出距离
-        if (!col->bound_OBB.Intersects(origin, dir, dist))return false;
-        tShape = dist;
+		//转成局部射线
+		const XMMATRIX invW = XMMatrixInverse(nullptr, XMLoadFloat4x4(&node->worldTransform));
+		const XMVECTOR localOrigin = XMVector3TransformCoord(origin, invW);
+		const XMVECTOR localDir = XMVector3TransformNormal(dir, invW);
+
+		//重新归一化
+		float dirScale = XMVectorGetX(XMVector3Length(localDir));
+		if (dirScale < 1e-8f) return false;//如果缩放太小无法比较,直接返回
+
+		XMFLOAT3 lo, ld;
+		XMStoreFloat3(&lo, localOrigin);
+		XMStoreFloat3(&ld, localDir / dirScale);
+
+		//用高度场做射线检测
+		float localT = 0.0f;
+		if (!field->RayCast(lo, ld, tMax * dirScale, localT)) return false;
+
+		//转为世界距离
+		const float tWorld = localT / dirScale;
+		if (tWorld < tMin || tWorld > tMax) return false;
+
+		//填命中信息
+		outHit.Reset();
+		outHit.isHit = true;
+		outHit.distance = tWorld;
+		outHit.node = node;
+		outHit.hitPoint.x = ray.origin.x + ray.direction.x * tWorld;
+		outHit.hitPoint.y = ray.origin.y + ray.direction.y * tWorld;
+		outHit.hitPoint.z = ray.origin.z + ray.direction.z * tWorld;
+		return true;
+	}
+#pragma endregion
+
+#pragma region 粗筛
+	//先用包围盒粗略筛选
+	float tShape;//包围盒命中距离
+	if (col->collisionType == ECollisionType::OBB)//OBB筛选
+	{
+		float dist;
+		//DX碰撞库里包围盒与射线检测函数,dist为输出距离
+		if (!col->bound_OBB.Intersects(origin, dir, dist))return false;
+		tShape = dist;
+	}
+    else if (col->collisionType == ECollisionType::Sphere)//包围球筛选
+	{
+		float dist;
+		//DX碰撞库里包围盒与射线检测函数,dist为输出距离
+		if (!col->bound_Spheres.Intersects(origin, dir, dist))return false;
+		tShape = dist;
+
     }
-    else // 否则就是支持AABB,三角形也先进行AABB筛选
-    {
+	else //剩下除地形外统一用AABB先做一遍粗筛
+	{
 		float dist;
 		if (!col->bound_AABB.Intersects(origin, dir, dist)) return false;
 		tShape = dist;
-    }
-    // 射线起点在包围盒内部时,Intersects返回的距离是0
-    // 这时不能用它当三角形细筛的上限,否则检测范围变成[0,0],永远筛不到东西
-    const bool originInside = (tShape <= 0.0f);
-    if (!originInside && (tShape < tMin || tShape > tMax)) return false;//有相交但距离不符合也跳过
+	}
+	// 射线起点在包围盒内部时,粗筛返回的距离是0
+	// 这时不能用它当三角形细筛的上限,否则检测范围变成[0,0],永远筛不到东西
+	const bool isInside = (tShape <= 0.0f);
+	if (!isInside && (tShape < tMin || tShape > tMax)) return false;//有相交但距离不符合也跳过
+#pragma endregion 
 
-    // 三角形精细筛选
-    if (col->collisionType == ECollisionType::Triangle)
-    {
+#pragma region 三角形细筛
+
+	// 三角形精细筛选
+	if (col->collisionType == ECollisionType::Triangle)
+	{
 		auto* renderComp = node->GetComponent<RenderComponent>();
 		if (!renderComp) return false;
 
-        //世界射线->局部射线,统一在局部坐标系检测
-        XMMATRIX invW = XMMatrixInverse(nullptr, XMLoadFloat4x4(&node->worldTransform));
+		//世界射线->局部射线,统一在局部坐标系检测
+		XMMATRIX invW = XMMatrixInverse(nullptr, XMLoadFloat4x4(&node->worldTransform));
 		XMVECTOR localOrigin = XMVector3TransformCoord(origin, invW);
 		XMVECTOR localDir = XMVector3TransformNormal(dir, invW);
 
-        //重新归一化
-        float dirScale = XMVectorGetX(XMVector3Length(localDir));
-        if (dirScale < 1e-8f) return false;//如果缩放太小无法比较,直接返回
-        localDir /= dirScale;
+		//重新归一化
+		float dirScale = XMVectorGetX(XMVector3Length(localDir));
+		if (dirScale < 1e-8f) return false;//如果缩放太小无法比较,直接返回
+		localDir /= dirScale;
 
-        //保存本地射线
-        Ray localRay;
+		//保存本地射线
+		Ray localRay;
 		XMStoreFloat3(&localRay.origin, localOrigin);
 		XMStoreFloat3(&localRay.direction, localDir);
 
-        //用局部射线与三角形检测
+		//用局部射线与三角形检测
 
-        bool  hit = false;
-        float nearest = (originInside ? tMax : tShape) * dirScale;
-        for (auto& sub : renderComp->GetSubmeshs())
-        {
-            if (!sub.meshGeo)continue;
-            float localHit;//局部击中信息(要变换)
+		bool  hit = false;
+		float nearest = (isInside ? tMax : tShape) * dirScale;
+		for (auto& sub : renderComp->GetSubmeshs())
+		{
+			if (!sub.meshGeo)continue;
+			float localHit;//局部击中信息(要变换)
 			//使用tShape缩小检测范围, tShape * dirScale换算成局部坐标
-            if (IntersectMesh(localRay, sub.meshGeo, sub.submeshName,
-                0.0f, nearest, localHit))
-            {
-                nearest = localHit;
-                hit = true;
+			if (IntersectMesh(localRay, sub.meshGeo, sub.submeshName,
+				0.0f, nearest, localHit))
+			{
+				nearest = localHit;
+				hit = true;
 			}
-        }
+		}
 		if (!hit) return false;
 		tShape = nearest / dirScale;//变换为世界坐标击中距离
-    }
+	}
 
-    //填写击中信息
-    outHit.Reset();
-    outHit.isHit = true;
-    outHit.distance = tShape;
-    outHit.node = node;
-    //计算击中位置(起点+方向*距离)
+	//填写击中信息
+	outHit.Reset();
+	outHit.isHit = true;
+	outHit.distance = tShape;
+	outHit.node = node;
+	//计算击中位置(起点+方向*距离)
 	outHit.hitPoint.x = ray.origin.x + ray.direction.x * tShape;
 	outHit.hitPoint.y = ray.origin.y + ray.direction.y * tShape;
 	outHit.hitPoint.z = ray.origin.z + ray.direction.z * tShape;
-    return true;
+	return true;
+#pragma endregion
+
 }
 
 bool RayCaster::IntersectMesh(const Ray& ray, 

@@ -46,7 +46,7 @@ public:
 
 	//设置碰撞箱(min,max)
 	CollisionComponent& SetBoundFromMinMax(const DirectX::XMFLOAT3& mn,
-										   const DirectX::XMFLOAT3& mx);
+										   const DirectX::XMFLOAT3& mx); 
 
 	// 设置碰撞箱(用局部包围盒+世界矩阵)
 	void SetBoundFromMatW(const DirectX::BoundingBox& localAABB,
@@ -61,7 +61,8 @@ public:
 	DirectX::BoundingSphere      bound_Spheres = {};     // 包围球
 
 	bool isIndependent = false;                          // 是否独立(包围盒手动设置)
-	bool isUseBound    = true;                           // 是否使用包围盒(对象用高度图采样)
+	bool isDrawBound   = true;                           // 是否使绘制包围盒
+	bool isRayCaster   = true;                           // 是否进行射线检测 
 
 	ELayerMask layer = ELayerMask::None;                 // 碰撞层级
 	UINT       mask  = UINT_MAX;                         // 碰撞掩码(受那几个层级的碰撞)

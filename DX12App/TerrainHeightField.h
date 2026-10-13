@@ -27,6 +27,11 @@ public:
 	// 采样坡度 1平地,0垂直(false越界)
 	bool SampleSlope(float loaclX, float loaclZ, float& outSlope)const;
 
+	//射线与地形求交
+	bool RayCast(const DirectX::XMFLOAT3& origin,
+				 const DirectX::XMFLOAT3& direction,
+				 float tMax, float& outT) const;
+
 	// ==== 查询成员 ====
 	// 是否越界
 	bool IsInRange(float loaclX, float loaclZ)const;

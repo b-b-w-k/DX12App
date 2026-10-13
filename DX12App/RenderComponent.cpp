@@ -41,19 +41,15 @@ SubmeshDraw* RenderComponent::GetSubmesh(const std::string& submeshName)
 
 void RenderComponent::MarkDirty()
 {
-	for (auto& sub : m_submeshes)
-		sub.MarkDirty();
-	//节点同时更新
+	//节点更新
 	owner->MarkDirty();
 }
 
 void RenderComponent::SetMaterialAll(Material* mat)
 {
-    for (auto& sub : m_submeshes)
-    {
-        sub.material = mat;
-        sub.MarkDirty();
-    }
+	for (auto& sub : m_submeshes)
+		sub.material = mat;
+
     //节点同时更新
     owner->MarkDirty();
 }
@@ -62,11 +58,8 @@ void RenderComponent::SetTexTransformAll(float u, float v)
 {
     DirectX::XMFLOAT4X4 texTran;
     DirectX::XMStoreFloat4x4(&texTran, DirectX::XMMatrixScaling(u, v, 1.0f));
-    for (auto& sub : m_submeshes)
-    {
-        sub.texTransform = texTran;
-        sub.MarkDirty();
-    }
+	for (auto& sub : m_submeshes)
+		sub.texTransform = texTran;
 	//节点同时更新
 	owner->MarkDirty();
 }

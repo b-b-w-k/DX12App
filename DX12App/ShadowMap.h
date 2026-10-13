@@ -16,7 +16,7 @@ public:
 						  CD3DX12_GPU_DESCRIPTOR_HANDLE hGpuSrv,
 						  CD3DX12_CPU_DESCRIPTOR_HANDLE hCpuDsv);
 
-	// 计算灯光View/Proj,填写阴影PassCB
+	// 计算灯光视角下View/Proj,填写阴影PassCB
 	void UpdateLightMat(const DirectX::XMFLOAT3& lightDirection,
 						const DirectX::XMFLOAT3& sceneCenter,
 						float sceneRadius,
@@ -27,9 +27,10 @@ public:
 	CD3DX12_GPU_DESCRIPTOR_HANDLE GetHGpuSrv() { return m_hGpuSrv; }
 	const PassConstants& GetShadowPassCB() const { return m_shadowPassCB; }
 	const DirectX::XMFLOAT4X4& GetShadowTransform() const { return m_shadowPassCB.shadowTransform; }
-	D3D12_VIEWPORT GetViewport() const { return m_viewport; }
+
+	D3D12_VIEWPORT GetViewport()   const { return m_viewport; }
 	D3D12_RECT     GetScreenRect() const { return m_screenRect; }
-	UINT GetSize() const { return m_size; }
+	UINT           GetSize()       const { return m_size; }
 private:
 	//建立资源和描述符
 	void BuildResources();

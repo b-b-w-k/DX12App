@@ -272,7 +272,7 @@ void Scene::BuildTerrain(Material* mat,
 	//碰撞配置
 	AddCollisionFromNode(obj, ECollisionType::Terrain);
 	auto* col = obj->GetComponent<CollisionComponent>();
-	col->isUseBound = false;
+	col->isDrawBound = false;
 
 	//启用实例化
 	auto& sub = rc->GetSubmeshs().front();
@@ -780,44 +780,31 @@ void Scene::UpdateObjCB(FrameResource* frame)
 		auto* renderComp = pNode->GetComponent<RenderComponent>();
 		if (!renderComp)continue;
 
-		bool anyDirty = pNode->IsDirty();
+		//不脏就跳过
+		if (!pNode->IsDirty())continue;
+	
+		XMMATRIX world = XMLoadFloat4x4(&pNode->worldTransform);
+		int boneOffset = 0;
+		if (auto* skel = pNode->GetComponent<SkeletonComponent>())
+			boneOffset = skel->m_boneCBOffset;
 
-		if (!anyDirty)//如果节点不脏,检查子网格是否脏
+		for (auto& sub : renderComp->GetSubmeshs())
 		{
-			for (auto& sub : renderComp->GetSubmeshs())
-			{
-				//如果该子网格脏,就将该节点设置为要更新
-				if (sub.numFrameDirty > 0)
-				{
-					anyDirty = true;
-					break;
-				}
-			}
-		}
-		if(anyDirty) // 更新对象常量缓冲区
-		{
-			XMMATRIX world = XMLoadFloat4x4(&pNode->worldTransform);
-			for (auto& sub : renderComp->GetSubmeshs())
-			{
-				if (sub.numFrameDirty <= 0)continue;
-				ObjectConstants objC;
-				//更新世界矩阵
-				XMStoreFloat4x4(&objC.world, XMMatrixTranspose(world));
-				//更新纹理变换矩阵
-				XMMATRIX texTransform = XMLoadFloat4x4(&sub.texTransform);
-				XMStoreFloat4x4(&objC.texTransform, XMMatrixTranspose(texTransform));
-				//更新材质索引
-				objC.materialIndex = (sub.material ? sub.material->matBufferIndex : -1);
-				//更新骨骼偏移(没有就为0)
-				objC.boneOffset = 0;
-				if (auto* skel = pNode->GetComponent<SkeletonComponent>())
-					objC.boneOffset = skel->m_boneCBOffset;
+			ObjectConstants objC;
+			//更新世界矩阵
+			XMStoreFloat4x4(&objC.world, XMMatrixTranspose(world));
+			//更新纹理变换矩阵
+			XMMATRIX texTransform = XMLoadFloat4x4(&sub.texTransform);
+			XMStoreFloat4x4(&objC.texTransform, XMMatrixTranspose(texTransform));
+			//更新材质索引
+			objC.materialIndex = (sub.material ? sub.material->matBufferIndex : -1);
+			//更新骨骼偏移(没有就为0)
+			objC.boneOffset = boneOffset;
 
-				objCB->CopyData(sub.objCBIndex, objC);
-				sub.numFrameDirty--;
-			}
-			pNode->numFrameDirty--;
+			objCB->CopyData(sub.objCBIndex, objC);
 		}
+		pNode->numFrameDirty--;
+
 	}
 }
 
@@ -959,29 +946,6 @@ UINT Scene::GetTextureSrvIndex(const std::string& name) const
 		if (m_tex2DList[i] == name)
 			return m_srvStartSlot + i;
 	return UINT_MAX;
-}
-
-int Scene::GetNodeObjCBIndex(const std::string& nodeName, const std::string& submeshName) const
-{
-	auto it = m_nodeByName.find(nodeName);
-	if (it == m_nodeByName.end()) return -1;
-
-	auto* rc = it->second->GetComponent<RenderComponent>();
-	if (!rc) return -1;
-
-	const auto& subs = rc->GetSubmeshs();
-	if (subs.empty()) return -1;
-
-	if (submeshName.empty())
-		return subs.front().objCBIndex;
-
-	//按名字查
-	for (const auto& sub : subs)
-	{
-		if (sub.submeshName == submeshName)
-			return sub.objCBIndex;
-	}
-	return -1;
 }
 
 int Scene::AllocObjCBIndex()

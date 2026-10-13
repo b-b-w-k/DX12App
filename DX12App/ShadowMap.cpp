@@ -64,6 +64,7 @@ void ShadowMap::BuildResources()
 	// 建立纹理资源
 	// 作为深度图(光源方向深度)和着色器资源(用于着色器采样)
 
+	//F32
 	D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(
 		DXGI_FORMAT_R32_TYPELESS, m_size, m_size, 1, 1, 1, 0,
 		D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);

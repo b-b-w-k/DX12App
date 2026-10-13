@@ -25,7 +25,7 @@ struct PassConstants
 	DirectX::XMFLOAT4X4 invProj = DxMath::Identity4x4();
 	DirectX::XMFLOAT4X4 viewProj = DxMath::Identity4x4();//观察投影矩阵
 	DirectX::XMFLOAT4X4 invViewProj = DxMath::Identity4x4();
-	DirectX::XMFLOAT4X4 shadowTransform = DxMath::Identity4x4(); //世界->阴影裁剪空间
+	DirectX::XMFLOAT4X4 shadowTransform = DxMath::Identity4x4(); //光源正交矩阵
 
 	DirectX::XMFLOAT3 eyePosW = { 0,0,0, };//视线方向
 	int isClipPlane = 0;//是否启用裁剪平面(0/1)

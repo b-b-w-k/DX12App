@@ -76,6 +76,7 @@ private:
 	bool m_isGround = false;                   // 是否在地面
 	bool m_isJump   = false;				   // 是否跳跃
 	bool m_isRun    = false;				   // 是否奔跑
+	bool m_inited   = false;                   // 是否初始化
 	
 
 

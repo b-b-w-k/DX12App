@@ -36,9 +36,7 @@ struct SubmeshDraw
 	RenderLayer              renderLayer   = RenderLayer::Opaque;                    // 渲染层级
 	D3D12_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;  // 图元拓扑类型
 
-	// 脏标识
-	int numFrameDirty = numFrameResources;
-	void MarkDirty() { numFrameDirty = numFrameResources; }
+	// 脏标识:合并到节点,节点脏就重写该节点全部子网格的对象CB
 };
 
 

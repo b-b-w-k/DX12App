@@ -141,6 +141,116 @@ bool TerrainHeightField::SampleSlope(float LocalX, float LocalZ, float& outSlope
 	return true;
 }
 
+bool TerrainHeightField::RayCast(const DirectX::XMFLOAT3& origin, 
+								 const DirectX::XMFLOAT3& direction, 
+								 float tMax, float& outT) const
+{
+	if (m_heightData.empty() || m_width < 2 || m_height < 2) return false;
+	if (tMax <= 0.0f) return false;
+
+	const float halfX = m_worldSize.x * 0.5f;
+	const float halfZ = m_worldSize.y * 0.5f;
+
+	// === 平板法求进入t ===
+	// 保证射线在地形采样有效范围内
+	//一般情况下(在地形内发出射线)tEnter都是0
+	float tEnter = 0.0f;
+
+	const float o[2] = { origin.x,origin.z };
+	const float d[2] = { direction.x,direction.z };
+	const float h[2] = { halfX,halfZ };
+	for (int i=0;i<2;++i)
+	{
+		if (fabsf(d[i])<1e-8f)
+		{
+			//如果在范围外直接退出
+			if (o[i] < -h[i] || o[i] > h[i]) return false;
+			//方向分量太小无法比较跳过
+			continue;
+		}
+		//两个时刻
+		//t满足: -h < t*d+o < h
+		const float t0 = (-h[i] - o[i]) / d[i];
+		const float t1 = ( h[i] - o[i]) / d[i];
+		//累记比较进入时刻
+		// min判断t0,t1哪个才是进入时刻
+		// max判断x ,z平面全部进入才算进入,要取最大的
+		tEnter = (std::max)(tEnter, (std::min)(t0, t1));
+	}
+	if (tEnter > tMax)return false;
+
+	//剔除不合法射线
+	//进入点在地表下剔除
+	const float sx = direction.x * tEnter + origin.x;
+	const float sy = direction.y * tEnter + origin.y;
+	const float sz = direction.z * tEnter + origin.z;
+	float startH = 0.0f;
+	if (!SampleHeight(sx, sz, startH)) return false;//采样越界也直接返回
+	if (sy < startH) return false;//如果射线是从地底打上来的剔除
+
+
+	//=== 垂直射线直接求解(可以直接用xz采样高度场) === 
+	
+	const float dxz = sqrtf(direction.x * direction.x + direction.z * direction.z);
+	if (dxz < 1e-6f)//判断是否垂直与xz平面
+	{
+		//并且要求方向朝下
+		if (direction.y >= 0.0f) return false;
+		//sy - startH是垂直落差
+		//垂直情况下 -direction.y近似1,这里除是为了统一单位
+		//在射线是斜的情况下-direction.y就不是1了
+		const float t = tEnter + (sy - startH) / -direction.y;
+		if (t < 0.0f || t > tMax) return false;//不合法退出
+		outT = t;
+		return true;
+	}
+
+	//=== 粗步进 求取通用(斜)射线交点 ===
+	//每单位纹素的世界距离
+	const float cell = (std::max)(m_worldSize.x, m_worldSize.y) / (std::max)(m_width, m_height);
+	//每次步进4个纹素的世界距离,钳制最大值为0.25f
+	const float dt = (std::max)(cell * 4.0f, 0.25f);
+	//控制最大步进次数,避免极端情况
+	const int   maxStep = 4096;
+
+	float tStart = tEnter;//左区间:射线开始时刻
+	float tEnd   = tEnter;//右区间:射线穿过地形时最近时刻
+	bool isPass = false;  //是否穿透地形
+	for (int i = 0; i < maxStep; i++)
+	{
+		tEnd = (std::min)(tStart + dt, tMax);
+		const float px = origin.x + direction.x * tEnd;
+		const float pz = origin.z + direction.z * tEnd;
+		const float py = origin.y + direction.y * tEnd;
+		//采样高度
+		float h = 0.0f;
+		if (!SampleHeight(px, pz, h)) break;
+		//如果小于采样高度,证明穿透(前提是默认射线是从上往下打的)
+		if (py < h) { isPass = true; break; }
+		if (tEnd >= tMax) break; //到设定上限没穿退出
+		tStart = tEnd; //准备下一次步进区间
+	}
+	//未检测到击中,退出
+	if (!isPass) return false;
+
+	//通过二分收敛到准确击中位置,16次收敛足够了
+	for (int i = 0; i < 16; ++i)
+	{
+		const float tm = (tStart + tEnd) * 0.5f;
+		const float px = origin.x + direction.x * tm;
+		const float pz = origin.z + direction.z * tm;
+		const float py = origin.y + direction.y * tm;
+		//采样高度
+		float h = 0.0f;
+		if (!SampleHeight(px, pz, h)) { tEnd = tm; continue; }
+		//收敛区间
+		if (py < h) tEnd   = tm;
+		else        tStart = tm;
+	}
+	outT = (tStart + tEnd) * 0.5f;
+	return true;
+}
+
 bool TerrainHeightField::IsInRange(float LocalX, float LocalZ) const
 {
 	// 据中心的最大范围

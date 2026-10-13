@@ -10,7 +10,7 @@
 #include "MeshGeometry.h"// 几何体数据
 #include "D3DTools.h"    // DX工具方法
 
-#include "QuadTree.h" //使用TerrainPatch
+#include "QuadTree.h"    // 使用TerrainPatch
 
 class FrameResource;
 class RenderComponent;
@@ -202,18 +202,24 @@ public:
 	const std::vector<Node*>& GetCollisionNodes() const { return m_collisionNodes; }
     // 获取所有蒙皮对象(有动画)
 	const std::vector<Node*>& GetSkeletonNodes() const { return m_skeletonNodes; }
+	// 获取地形对象(目前就一块地形)
+	Node* GetTerrainNode() const { return m_terrainNode; }
     // 获取所有地形可见Patch
     const std::vector<TerrainPatch>& GetTerrainPatches()const { return m_visiblePatches; }
+
     //获取地形高度图数据
+    const TerrainHeightField* GetTerrainHeightField() const {return m_terrHeightField.get(); }
 	float GetTerrainSize()        const { return m_terrainSize; }
 	float GetTerrainHeightScale() const { return m_terrainHeightScale; }
     DirectX::XMFLOAT2 GetTextureSize(const std::string& name);
+
 	// 获取单个资源数据
 	Texture*      GetTexture (const std::string& name);   // 纹理
 	MeshGeometry* GetGeometry(const std::string& name);   // 网格
 	Material*     GetMaterial(const std::string& name);   // 材质
     Skeleton*     GetSkeleton(const std::string& name);   // 骨骼
     AnimationClip*GetAnimate (const std::string& name);   // 动画
+
 
     // 获取数量
 	UINT GetMaterialNum()     const { return (UINT)m_materials.size(); }
@@ -224,21 +230,18 @@ public:
     UINT GetRenderNum()       const { return (UINT)m_renderNodes.size(); }
     UINT GetSubmeshNum()      const { return  m_totalSubmeshs;}
    
-	
-	
-
 	// 获取绘制信息
 	const DrawStats& GetDrawStats() { return m_drawStats; }
     // 获取视锥体(debug可视化)
     const Frustum& GetFrustum()const { return m_frustum; }
+
 	// 获取用掉的槽位数量
 	UINT GetSRVCount() const { return m_srvCount; }
     // 获取天空盒纹理索引
     UINT GetSkyBoxIndex() const { return m_skyBoxSrvIndex; }
     // 获取纹理索引
     UINT GetTextureSrvIndex(const std::string& name) const;
-    
-    int GetNodeObjCBIndex(const std::string& nodeName, const std::string& submeshName = "") const;
+
 
 private:
     

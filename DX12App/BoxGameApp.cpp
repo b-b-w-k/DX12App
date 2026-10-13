@@ -53,14 +53,10 @@ bool BoxGameApp::InitApp()
 	m_inputManage = std::make_unique<InputManage>();
 	m_inputManage->InputInit();
 
-	
-
-
 	// ===== 摄像机初始化 =====
 	m_camControl = std::make_unique<FlyCameraController>();//默认自由摄像机
 	m_camera.UpdateViewMatrix();//显示更新一次
 
-	
 	BuildGlobalDescriptorHeaps();//构建堆
 	// ===== 场景对象初始化 =====
 	m_scene = std::make_unique<Scene>(
@@ -70,13 +66,10 @@ bool BoxGameApp::InitApp()
 	// ===== 射线检测器初始化 =====
 	m_rayCaster = std::make_unique<RayCaster>(m_scene.get());
 
-	// 构建：几何体/纹理/材质/对象/SRV堆
-	BuildScene();         
-
-	
+	BuildScene();                //构建创建几何体/纹理/材质/对象/SRV堆
 
 	BuildReflection();           //建立反射资源
-	BuildShadowMap();
+	BuildShadowMap();            //建立阴影贴图
 	// ===== 管线资源初始化 =====
 	BuildRootSignature();//获取纹理数量,构建描述符表
 	BuildShadersAndInputLayout();
@@ -403,7 +396,7 @@ void BoxGameApp::DrawShadowMap()
 		auto* renderComp = obj->GetComponent<RenderComponent>();
 		if (!renderComp)continue;
 		saveCull.push_back(renderComp->isCull);
-		renderComp->isCull = false;
+		renderComp->isCull = false;//阴影贴图绘制不剔除
 	}
 
 	//状态转换: 采样->深度写入
@@ -424,6 +417,7 @@ void BoxGameApp::DrawShadowMap()
 	m_commandList->RSSetViewports(1, &view);
 	m_commandList->RSSetScissorRects(1, &screen);
 
+	//阴影pass
 	m_commandList->SetGraphicsRootConstantBufferView(
 		1, passCB->GetGPUVirtualAddress() + passCBSize * 8);
 
@@ -538,7 +532,7 @@ void BoxGameApp::DrawDebugLine()
 		if (!obj)return;
 		auto* colComp = obj->GetComponent<CollisionComponent>();
 		if (!colComp)return;
-		if (!colComp->isUseBound)return;
+		if (!colComp->isDrawBound)return;
 		if (m_debugRenderer->isDebug_AABB)
 			m_debugRenderer->AddAABB(colComp->bound_AABB, XMFLOAT4(0, 1, 0, 1));
 		if (m_debugRenderer->isDebug_OBB)
@@ -719,7 +713,7 @@ void BoxGameApp::UpdateMainPassCB(float dt)
 	const float    sceneRadius = 40.0f; //世界半径
 	m_shadowMap->UpdateLightMat(
 		m_mainPassCB.lights[0].direction, sceneCenter, sceneRadius, m_mainPassCB);
-
+	
 	const PassConstants& shadowCB = m_shadowMap->GetShadowPassCB();
 	m_mainPassCB.shadowTransform = shadowCB.shadowTransform;
 
@@ -895,8 +889,6 @@ void BoxGameApp::GameRender()
 	//天空盒渲染
 	m_scene->Draw(m_PSOs["SkyBox"].Get(),
 		RenderLayer::SkyBox, m_curFrameResource);
-
-	
 
 	//AlphaTest物体渲染
 	// m_scene->Draw(m_PSOs["AlphaTest"].Get(),
@@ -1253,7 +1245,7 @@ void BoxGameApp::BuildShadowPso()
 			d.RasterizerState.SlopeScaledDepthBias = 2.0f;
 		};
 
-	// 普通/镜面/水面物体,复用standardVS
+	// 普通物体,复用standardVS
 	auto desc = BasePsoDesc();
 	setDepthOnly(desc);
 	CreatePso("ShadowOpaque", desc);
@@ -1548,7 +1540,7 @@ void BoxGameApp::BuildScene()
 	auto* skComp = m_scene->AddSkeletonFromNode(obj_player, "player_skeleton");
 	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 
-	//obj_player->AddComponent<ControlComponent>(&m_camera,m_rayCaster.get(),m_inputManage.get());
+	obj_player->AddComponent<ControlComponent>(&m_camera,m_rayCaster.get(),m_inputManage.get());
 #pragma endregion
 
 	
