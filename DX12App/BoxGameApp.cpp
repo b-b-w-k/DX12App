@@ -1536,7 +1536,7 @@ void BoxGameApp::BuildScene()
 		{ -3.0f, 0.0f, 7.0f },
 		{ 0, 0, 0 },
 		{ 0.02f,  0.02f,  0.02f });
-	m_scene->AddCollisionFromNode(obj_player, ECollisionType::Triangle);
+	m_scene->AddCollisionFromNode(obj_player, ECollisionType::OBB);
 	auto* skComp = m_scene->AddSkeletonFromNode(obj_player, "player_skeleton");
 	//skComp->Play(m_scene->GetAnimate(animateName.c_str()));
 

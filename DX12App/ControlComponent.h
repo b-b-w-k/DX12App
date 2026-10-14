@@ -35,7 +35,8 @@ public:
 
 public:
 	// 控制器参数
-	float feetOffset = 0;     // 模型脚底到原点的y轴偏移
+	float feetOffset = 0.1f;  // 模型脚底到原点的y轴偏移
+	float stepHeight = 0.5f;  // 射线抬高距离,不被起伏遮挡 
 	float moveSpeed  = 3.0f;
 	float runSpeed   = 6.0f;
 	float rotSpeed   = 10.0f; // 镜头旋转速度

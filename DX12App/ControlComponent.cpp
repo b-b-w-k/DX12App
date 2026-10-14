@@ -115,7 +115,7 @@ void ControlComponent::UpdateToward(float dt)
 {
 	//根据移动方向设置人物模型朝向偏移(只绕y轴旋转)
 	if (m_moveDir.x != 0.0f || m_moveDir.z != 0.0f)
-		m_targetYaw = atan2f(m_moveDir.x, m_moveDir.z);
+		m_targetYaw = atan2f(-m_moveDir.x, -m_moveDir.z);
 
 	float offset = m_targetYaw - m_curYaw;
 	//归到(-pi,pi)之间
@@ -156,8 +156,11 @@ void ControlComponent::UpdateMoveHor(float dt)
 					 start.y,
 					 start.z + vel.z * dt };
 
+	XMFLOAT3 rayS = { start.x,start.y + stepHeight,start.z };
+	XMFLOAT3 rayE = { end.x,end.y + stepHeight,end.z };
+
 	//碰撞检测路径是否被阻挡,获取实际移动距离
-	float dist = rayCaster->CheckMove(start, end, owner);
+	float dist = rayCaster->CheckMove(rayS, rayE, owner);
 
 	XMVECTOR offset = XMLoadFloat3(&end) - XMLoadFloat3(&start);
 	float offsetLen = XMVectorGetX(XMVector3Length(offset)); //理想移动距离
